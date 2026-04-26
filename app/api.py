@@ -1687,6 +1687,47 @@ def _fetch_live_inventory_records(*, source_url: str, timeout_seconds: int) -> d
 
     normalized = _normalize_inventory_records(raw_records, source_url=source_url)
     diagnostics.append(f"normalized_records={len(normalized)}")
+    if not normalized:
+        try:
+            proxy_payload = _fetch_live_inventory_records_via_proxy_markdown(
+                source_url=source_url,
+                timeout_seconds=timeout_seconds,
+            )
+            diagnostics.extend(list(proxy_payload.get("diagnostics") or []))
+            proxy_records = list(proxy_payload.get("items") or [])
+            normalized_proxy = _normalize_inventory_records(proxy_records, source_url=source_url)
+            diagnostics.append(f"fallback_proxy_normalized_records={len(normalized_proxy)}")
+            if normalized_proxy:
+                return {
+                    "source_url": source_url,
+                    "fetched_at": proxy_payload.get("fetched_at") or datetime.now(timezone.utc).isoformat(),
+                    "items": normalized_proxy,
+                    "items_count": len(normalized_proxy),
+                    "diagnostics": diagnostics,
+                }
+        except Exception as exc:
+            diagnostics.append(f"fallback_proxy_error={exc}")
+
+        try:
+            browser_payload = _fetch_live_inventory_records_via_browser_html(
+                source_url=source_url,
+                timeout_seconds=timeout_seconds,
+            )
+            diagnostics.extend(list(browser_payload.get("diagnostics") or []))
+            browser_records = list(browser_payload.get("items") or [])
+            normalized_browser = _normalize_inventory_records(browser_records, source_url=source_url)
+            diagnostics.append(f"fallback_browser_normalized_records={len(normalized_browser)}")
+            if normalized_browser:
+                return {
+                    "source_url": source_url,
+                    "fetched_at": browser_payload.get("fetched_at") or datetime.now(timezone.utc).isoformat(),
+                    "items": normalized_browser,
+                    "items_count": len(normalized_browser),
+                    "diagnostics": diagnostics,
+                }
+        except Exception as exc:
+            diagnostics.append(f"fallback_browser_error={exc}")
+
     return {
         "source_url": source_url,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
