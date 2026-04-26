@@ -7,7 +7,7 @@ ENV PATH="/opt/venv/bin:${PATH}"
 WORKDIR /app
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates \
+  && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates chromium chromium-driver \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./

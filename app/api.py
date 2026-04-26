@@ -2028,6 +2028,8 @@ def _build_browser_options() -> Any:
     chrome_options = webdriver.ChromeOptions()
     chrome_options.binary_location = str(chrome_binary)
     chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1600,1200")
     chrome_options.add_argument("--disable-background-networking")
@@ -2613,14 +2615,28 @@ def _relink_images_to_vin(
 
 
 def _find_chromedriver() -> Path | None:
+    env_driver = str(os.getenv("CHROMEDRIVER_PATH", "")).strip()
+    if env_driver:
+        candidate = Path(env_driver)
+        if candidate.exists():
+            return candidate
     if not FML_DRIVERS_DIR.exists():
+        for command in ("chromedriver", "chromedriver.exe"):
+            resolved = shutil.which(command)
+            if resolved:
+                return Path(resolved)
         return None
-    direct = FML_DRIVERS_DIR / "chromedriver.exe"
-    if direct.exists():
-        return direct
+    for direct_name in ("chromedriver.exe", "chromedriver"):
+        direct = FML_DRIVERS_DIR / direct_name
+        if direct.exists():
+            return direct
     for candidate in FML_DRIVERS_DIR.glob("chromedriver*"):
         if candidate.is_file():
             return candidate
+    for command in ("chromedriver", "chromedriver.exe"):
+        resolved = shutil.which(command)
+        if resolved:
+            return Path(resolved)
     return None
 
 
@@ -2642,7 +2658,7 @@ def _find_chrome_binary() -> Path | None:
         if candidate.exists():
             return candidate
 
-    for command in ("chrome.exe", "chrome"):
+    for command in ("chrome.exe", "chrome", "chromium", "chromium-browser", "google-chrome"):
         resolved = shutil.which(command)
         if resolved:
             return Path(resolved)
