@@ -1,0 +1,1373 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Funding Dashboard</title>
+  <style>
+    :root {
+      --bg: #f6f1e8;
+      --panel: rgba(255, 255, 255, 0.9);
+      --ink: #182431;
+      --muted: #5c6a77;
+      --accent: #0d6c90;
+      --critical: #b93c33;
+      --critical-soft: #fde3de;
+      --high: #d98a27;
+      --high-soft: #fcebcf;
+      --normal: #2c7864;
+      --normal-soft: #ddefe9;
+      --border: rgba(38, 54, 70, 0.12);
+      --line: rgba(24, 36, 49, 0.08);
+      --shadow: 0 18px 40px rgba(24, 36, 49, 0.08);
+      --radius: 22px;
+      --radius-sm: 14px;
+      --button-bg: rgba(255, 255, 255, 0.78);
+      --button-active: #182431;
+      --button-active-ink: #ffffff;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      min-height: 100%;
+      background:
+        radial-gradient(circle at top right, rgba(13, 108, 144, 0.12), transparent 30%),
+        radial-gradient(circle at left 20%, rgba(217, 138, 39, 0.10), transparent 28%),
+        linear-gradient(180deg, #f8f4ed 0%, #f2ede3 100%);
+      color: var(--ink);
+      font-family: Aptos, "Trebuchet MS", "Segoe UI", sans-serif;
+    }
+
+    body { padding: 28px; }
+    button, input { font: inherit; }
+    button { border: 0; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; }
+
+    .shell {
+      max-width: 1520px;
+      margin: 0 auto;
+      display: grid;
+      gap: 18px;
+    }
+
+    .masthead,
+    .rankings-shell,
+    .deals-shell {
+      display: grid;
+      gap: 16px;
+    }
+
+    .masthead { grid-template-columns: minmax(0, 1.8fr) minmax(320px, 1fr); }
+    .rankings-shell { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); }
+    .deals-shell { grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.85fr); align-items: start; }
+
+    .hero,
+    .hero-side,
+    .panel,
+    .detail-card {
+      background: var(--panel);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      padding: 28px;
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -70px -80px auto;
+      width: 220px;
+      height: 220px;
+      background: radial-gradient(circle, rgba(13, 108, 144, 0.18) 0%, rgba(13, 108, 144, 0) 72%);
+      z-index: -1;
+    }
+
+    .hero-side,
+    .panel,
+    .detail-card,
+    .mix-card,
+    .queue-card,
+    .signal-card,
+    .quality-card,
+    .ranking-table-wrap,
+    .table-card {
+      padding: 20px;
+    }
+
+    .eyebrow,
+    .meta-pill,
+    .badge,
+    .active-filter-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-weight: 700;
+    }
+
+    .eyebrow {
+      background: rgba(24, 36, 49, 0.08);
+      color: #0b516a;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      font-size: 12px;
+    }
+
+    .meta-pill,
+    .badge,
+    .active-filter-pill {
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(24, 36, 49, 0.07);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .badge.priority-Critical { background: var(--critical-soft); color: var(--critical); }
+    .badge.priority-High { background: var(--high-soft); color: #9f5b00; }
+    .badge.priority-Normal { background: var(--normal-soft); color: var(--normal); }
+
+    .hero h1,
+    .panel h2,
+    .detail-card h3 {
+      margin: 14px 0 0;
+      font-family: Rockwell, Georgia, serif;
+      line-height: 1.05;
+    }
+
+    .hero h1 { font-size: clamp(34px, 4vw, 56px); max-width: 10ch; }
+    .hero p,
+    .panel-subtitle,
+    .microcopy,
+    .footer-note,
+    .cell-muted,
+    .signal-meta,
+    .quality-meta,
+    .queue-meta-value,
+    .detail-value {
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .hero p { font-size: 16px; max-width: 68ch; margin: 14px 0 0; }
+
+    .meta-strip,
+    .button-group,
+    .action-row,
+    .toolbar-row,
+    .active-filters,
+    .panel-header {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .toolbar-row,
+    .panel-header { justify-content: space-between; }
+    .meta-strip { margin-top: 20px; }
+
+    .hero-note {
+      padding: 16px 18px;
+      border-radius: var(--radius-sm);
+      background: linear-gradient(135deg, rgba(13, 108, 144, 0.12), rgba(217, 138, 39, 0.08));
+      border: 1px solid rgba(13, 108, 144, 0.12);
+    }
+
+    .action-button,
+    .chip-button,
+    .table-sort,
+    .list-button,
+    .rank-button,
+    .focus-link,
+    .kpi-button,
+    .queue-card {
+      background: var(--button-bg);
+      border: 1px solid rgba(24, 36, 49, 0.08);
+      color: var(--ink);
+      border-radius: 14px;
+      transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease, color 160ms ease;
+    }
+
+    .action-button,
+    .chip-button,
+    .table-sort,
+    .rank-button,
+    .focus-link { padding: 10px 14px; font-weight: 700; }
+
+    .action-button:hover,
+    .chip-button:hover,
+    .table-sort:hover,
+    .list-button:hover,
+    .rank-button:hover,
+    .focus-link:hover,
+    .kpi-button:hover,
+    .queue-card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 24px rgba(24, 36, 49, 0.1);
+    }
+
+    .is-active {
+      background: var(--button-active);
+      color: var(--button-active-ink);
+      border-color: transparent;
+    }
+
+    .toolbar { display: grid; gap: 12px; }
+    .search-wrap { flex: 1 1 280px; min-width: 240px; }
+    .search-wrap input {
+      width: 100%;
+      padding: 14px 18px;
+      border-radius: 16px;
+      border: 1px solid rgba(24, 36, 49, 0.08);
+      background: rgba(255, 255, 255, 0.88);
+      color: var(--ink);
+      outline: none;
+      box-shadow: var(--shadow);
+    }
+
+    .search-wrap input:focus {
+      border-color: rgba(13, 108, 144, 0.36);
+      box-shadow: 0 0 0 3px rgba(13, 108, 144, 0.13);
+    }
+
+    .kpi-grid,
+    .signal-grid,
+    .mix-grid,
+    .quality-grid,
+    .queue-grid,
+    .detail-grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .kpi-grid,
+    .signal-grid,
+    .mix-grid,
+    .quality-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+    .queue-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .rankings-shell .quality-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; }
+
+    .kpi-button {
+      width: 100%;
+      padding: 18px;
+      text-align: left;
+    }
+
+    .kpi-label,
+    .queue-meta-label,
+    .detail-label,
+    .ranking-table thead th,
+    .deal-table thead th {
+      font-size: 12px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .kpi-value,
+    .quality-value,
+    .signal-name {
+      font-family: Rockwell, Georgia, serif;
+      line-height: 1.1;
+    }
+
+    .kpi-value { font-size: clamp(28px, 3vw, 42px); margin-top: 10px; }
+    .signal-name { font-size: 24px; }
+    .quality-value { font-size: 24px; }
+    .kpi-foot { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+
+    .signal-card,
+    .quality-card,
+    .mix-card,
+    .ranking-table-wrap,
+    .table-card {
+      background: rgba(255, 255, 255, 0.74);
+      border: 1px solid rgba(24, 36, 49, 0.08);
+      border-radius: 18px;
+    }
+
+    .signal-card h3,
+    .quality-card h3,
+    .mix-card h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      font-family: Aptos, "Trebuchet MS", sans-serif;
+    }
+
+    .mix-card { display: grid; gap: 14px; min-height: 290px; }
+    .mix-list { display: grid; gap: 12px; }
+
+    .list-button {
+      width: 100%;
+      padding: 0;
+      text-align: left;
+      overflow: hidden;
+    }
+
+    .list-button-inner { display: grid; gap: 8px; padding: 12px 14px; }
+    .list-line { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+    .list-label { font-weight: 700; }
+
+    .bar-track {
+      height: 10px;
+      background: rgba(24, 36, 49, 0.07);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), #4ba0bd);
+    }
+
+    .ranking-table tbody td,
+    .deal-table tbody td {
+      padding: 12px 10px;
+      border-top: 1px solid var(--line);
+      vertical-align: top;
+    }
+
+    .ranking-table tbody tr.is-selected,
+    .deal-table tbody tr.is-selected { background: rgba(13, 108, 144, 0.08); }
+
+    .queue-card {
+      width: 100%;
+      text-align: left;
+      display: grid;
+      gap: 12px;
+    }
+
+    .queue-card-header,
+    .list-name { display: flex; gap: 10px; }
+    .queue-card-header { justify-content: space-between; align-items: flex-start; }
+    .list-name { flex-direction: column; gap: 6px; }
+    .queue-title { font-size: 18px; font-weight: 800; line-height: 1.25; }
+    .queue-grid-meta { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .detail-item {
+      padding: 12px;
+      border-radius: 16px;
+      background: rgba(24, 36, 49, 0.04);
+      border: 1px solid rgba(24, 36, 49, 0.06);
+    }
+
+    .detail-item.full { grid-column: 1 / -1; }
+    .table-card { overflow: hidden; }
+    .table-scroll { overflow: auto; max-height: 900px; }
+    .deal-table { min-width: 1220px; }
+    .deal-row-button { padding: 0; background: transparent; text-align: left; width: 100%; color: inherit; }
+    .detail-card { position: sticky; top: 24px; display: grid; gap: 14px; }
+
+    @media (max-width: 1220px) {
+      .masthead, .rankings-shell, .deals-shell { grid-template-columns: 1fr; }
+      .queue-grid, .kpi-grid, .signal-grid, .mix-grid, .quality-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .detail-card { position: static; }
+    }
+
+    @media (max-width: 760px) {
+      body { padding: 16px; }
+      .queue-grid, .kpi-grid, .signal-grid, .mix-grid, .quality-grid, .detail-grid, .queue-grid-meta { grid-template-columns: 1fr; }
+      .hero, .hero-side, .panel, .detail-card { border-radius: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="masthead">
+      <article class="hero">
+        <span class="eyebrow">Funding Decision Board</span>
+        <h1>Tonight’s Deal Pressure Dashboard</h1>
+        <p>
+          A fast web view of the RouteOne and Reynolds cleanup queue. Click any KPI, ranking, chart bar, or deal row
+          to narrow the board and see who owns the oldest, riskiest, or heaviest pockets of unfinished work.
+        </p>
+        <div class="meta-strip" id="metaStrip"></div>
+      </article>
+      <aside class="hero-side">
+        <h2>How to use it</h2>
+        <div class="hero-note" id="trackerNote"></div>
+        <div class="action-row">
+          <button class="action-button" data-action="reset-filters">Reset filters</button>
+          <button class="action-button" data-action="download-csv">Export current view</button>
+        </div>
+      </aside>
+    </section>
+
+    <section class="toolbar panel">
+      <div class="toolbar-row">
+        <label class="search-wrap">
+          <input id="searchInput" type="search" placeholder="Search deal #, customer, lender, salesperson, stock #, vehicle">
+        </label>
+        <div class="button-group" id="scopeButtons"></div>
+      </div>
+      <div class="button-group" id="priorityButtons"></div>
+      <div class="button-group" id="ageButtons"></div>
+      <div class="button-group" id="inventoryButtons"></div>
+      <div class="button-group" id="blockerButtons"></div>
+      <div class="button-group" id="stockButtons"></div>
+      <div class="active-filters" id="activeFilters"></div>
+    </section>
+
+    <section class="kpi-grid" id="kpiGrid"></section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Executive Signals</h2>
+          <p class="panel-subtitle">Pressure score weighs deal age, urgency, untouched follow-up, and where the workflow is still stuck.</p>
+        </div>
+      </div>
+      <div class="signal-grid" id="signalGrid"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Role Rankings</h2>
+          <p class="panel-subtitle">Flip between FI managers, sales managers, salespeople, and lenders to see who carries the heaviest backlog.</p>
+        </div>
+        <div class="button-group" id="groupButtons"></div>
+        <div class="button-group" id="sortButtons"></div>
+      </div>
+      <div class="rankings-shell">
+        <div class="ranking-table-wrap">
+          <table class="ranking-table">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Name</th>
+                <th>Deals</th>
+                <th>Pressure</th>
+                <th>Urgent</th>
+                <th>Critical</th>
+                <th>Avg Age</th>
+                <th>Oldest</th>
+                <th id="coverageHeader">Coverage</th>
+              </tr>
+            </thead>
+            <tbody id="rankingTableBody"></tbody>
+          </table>
+        </div>
+        <div class="quality-grid" id="qualityGrid"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Pipeline Mix</h2>
+          <p class="panel-subtitle">These mix cards show where the work sits by urgency, lender exposure, inventory type, and stock age risk.</p>
+        </div>
+      </div>
+      <div class="mix-grid">
+        <div class="mix-card" id="priorityMix"></div>
+        <div class="mix-card" id="ageMix"></div>
+        <div class="mix-card" id="lenderMix"></div>
+        <div class="mix-card" id="inventoryMix"></div>
+        <div class="mix-card" id="makeMix"></div>
+        <div class="mix-card" id="stockMix"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Tonight’s Call Queue</h2>
+          <p class="panel-subtitle">The highest pressure deals float to the top. Click a card to pin full detail on the right.</p>
+        </div>
+      </div>
+      <div class="queue-grid" id="queueGrid"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Deal Table</h2>
+          <p class="panel-subtitle">Every imported row is here, with the original source columns and the tracker workflow status layered together.</p>
+        </div>
+      </div>
+      <div class="deals-shell">
+        <div class="table-card">
+          <div class="table-scroll">
+            <table class="deal-table">
+              <thead>
+                <tr>
+                  <th><button class="table-sort" data-action="sort-table" data-key="dealNumber">Deal</button></th>
+                  <th><button class="table-sort" data-action="sort-table" data-key="buyerName">Customer</button></th>
+                  <th><button class="table-sort" data-action="sort-table" data-key="priority">Priority</button></th>
+                  <th><button class="table-sort" data-action="sort-table" data-key="ageDays">Age</button></th>
+                  <th><button class="table-sort" data-action="sort-table" data-key="pressureScore">Pressure</button></th>
+                  <th><button class="table-sort" data-action="sort-table" data-key="financeManager">FI Manager</button></th>
+                  <th><button class="table-sort" data-action="sort-table" data-key="salesManager">Sales Manager</button></th>
+                  <th><button class="table-sort" data-action="sort-table" data-key="salesperson">Salesperson</button></th>
+                  <th><button class="table-sort" data-action="sort-table" data-key="lender">Lender</button></th>
+                  <th><button class="table-sort" data-action="sort-table" data-key="vehicle">Vehicle</button></th>
+                  <th><button class="table-sort" data-action="sort-table" data-key="stockNumber">Stock #</button></th>
+                  <th><button class="table-sort" data-action="sort-table" data-key="callStatus">Call Status</button></th>
+                </tr>
+              </thead>
+              <tbody id="dealTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <aside class="detail-card" id="detailPane"></aside>
+      </div>
+      <div class="footer-note" id="footerNote"></div>
+    </section>
+  </div>
+
+  <script id="dashboard-data" type="application/json">__DASHBOARD_PAYLOAD__</script>
+  <script>
+    const payload = JSON.parse(document.getElementById('dashboard-data').textContent);
+    const priorityOrder = { Critical: 3, High: 2, Normal: 1, '': 0 };
+    const priorityColorClass = {
+      Critical: 'priority-Critical',
+      High: 'priority-High',
+      Normal: 'priority-Normal',
+    };
+    const groupMeta = {
+      financeManager: { label: 'FI Managers', field: 'financeManager', coverageLabel: 'Salespeople' },
+      salesManager: { label: 'Sales Managers', field: 'salesManager', coverageLabel: 'Salespeople' },
+      salesperson: { label: 'Salespeople', field: 'salesperson', coverageLabel: 'Lenders' },
+      lender: { label: 'Lenders', field: 'lender', coverageLabel: 'FI Managers' },
+    };
+    const sortMeta = {
+      pressure: 'Pressure',
+      critical: 'Critical',
+      averageAge: 'Avg Age',
+      volume: 'Volume',
+    };
+
+    const deals = payload.deals.map((deal) => {
+      const ageDays = Number.isFinite(deal.ageDays) ? deal.ageDays : Number(deal.ageDays);
+      const stockDays = /^-?\d+$/.test(String(deal.daysInStockRaw || '')) ? Number(deal.daysInStockRaw) : null;
+      const normalized = { ...deal, ageDays: Number.isFinite(ageDays) ? ageDays : null, stockDays };
+      normalized.pressureScore = getPressureScore(normalized);
+      normalized.searchBlob = [
+        normalized.dealNumber,
+        normalized.buyerName,
+        normalized.financeManager,
+        normalized.salesManager,
+        normalized.salesperson,
+        normalized.stockNumber,
+        normalized.lender,
+        normalized.vehicle,
+        normalized.make,
+        normalized.model,
+      ].filter(Boolean).join(' ').toLowerCase();
+      return normalized;
+    });
+
+    const state = {
+      search: '',
+      scope: 'All',
+      priority: 'All',
+      ageBucket: 'All',
+      inventory: 'All',
+      blocker: 'All',
+      stockBucket: 'All',
+      entityGroup: '',
+      entityValue: '',
+      groupBy: 'financeManager',
+      rankingSort: 'pressure',
+      tableSort: { key: 'pressureScore', direction: 'desc' },
+      selectedDeal: '',
+    };
+
+    const elements = {
+      metaStrip: document.getElementById('metaStrip'),
+      trackerNote: document.getElementById('trackerNote'),
+      scopeButtons: document.getElementById('scopeButtons'),
+      priorityButtons: document.getElementById('priorityButtons'),
+      ageButtons: document.getElementById('ageButtons'),
+      inventoryButtons: document.getElementById('inventoryButtons'),
+      blockerButtons: document.getElementById('blockerButtons'),
+      stockButtons: document.getElementById('stockButtons'),
+      activeFilters: document.getElementById('activeFilters'),
+      kpiGrid: document.getElementById('kpiGrid'),
+      signalGrid: document.getElementById('signalGrid'),
+      groupButtons: document.getElementById('groupButtons'),
+      sortButtons: document.getElementById('sortButtons'),
+      coverageHeader: document.getElementById('coverageHeader'),
+      rankingTableBody: document.getElementById('rankingTableBody'),
+      qualityGrid: document.getElementById('qualityGrid'),
+      priorityMix: document.getElementById('priorityMix'),
+      ageMix: document.getElementById('ageMix'),
+      lenderMix: document.getElementById('lenderMix'),
+      inventoryMix: document.getElementById('inventoryMix'),
+      makeMix: document.getElementById('makeMix'),
+      stockMix: document.getElementById('stockMix'),
+      queueGrid: document.getElementById('queueGrid'),
+      dealTableBody: document.getElementById('dealTableBody'),
+      detailPane: document.getElementById('detailPane'),
+      footerNote: document.getElementById('footerNote'),
+      searchInput: document.getElementById('searchInput'),
+    };
+
+    initialize();
+
+    function initialize() {
+      bindEvents();
+      renderStaticBits();
+      render();
+    }
+
+    function bindEvents() {
+      document.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-action]');
+        if (!button) return;
+
+        const { action } = button.dataset;
+
+        if (action === 'reset-filters') {
+          Object.assign(state, {
+            search: '',
+            scope: 'All',
+            priority: 'All',
+            ageBucket: 'All',
+            inventory: 'All',
+            blocker: 'All',
+            stockBucket: 'All',
+            entityGroup: '',
+            entityValue: '',
+            groupBy: 'financeManager',
+            rankingSort: 'pressure',
+            tableSort: { key: 'pressureScore', direction: 'desc' },
+          });
+          elements.searchInput.value = '';
+          render();
+          return;
+        }
+
+        if (action === 'download-csv') {
+          downloadCsv();
+          return;
+        }
+
+        if (action === 'set-scope') {
+          state.scope = button.dataset.value;
+          render();
+          return;
+        }
+
+        if (action === 'set-priority') {
+          state.priority = button.dataset.value;
+          render();
+          return;
+        }
+
+        if (action === 'set-age') {
+          state.ageBucket = button.dataset.value;
+          render();
+          return;
+        }
+
+        if (action === 'set-inventory') {
+          state.inventory = button.dataset.value;
+          render();
+          return;
+        }
+
+        if (action === 'set-blocker') {
+          state.blocker = button.dataset.value;
+          render();
+          return;
+        }
+
+        if (action === 'set-stock') {
+          state.stockBucket = button.dataset.value;
+          render();
+          return;
+        }
+
+        if (action === 'clear-entity') {
+          state.entityGroup = '';
+          state.entityValue = '';
+          render();
+          return;
+        }
+
+        if (action === 'focus-entity') {
+          state.entityGroup = button.dataset.group;
+          state.entityValue = button.dataset.value;
+          render();
+          return;
+        }
+
+        if (action === 'search-token') {
+          state.search = button.dataset.value || '';
+          elements.searchInput.value = state.search;
+          render();
+          return;
+        }
+
+        if (action === 'set-group') {
+          state.groupBy = button.dataset.value;
+          state.entityGroup = '';
+          state.entityValue = '';
+          render();
+          return;
+        }
+
+        if (action === 'set-ranking-sort') {
+          state.rankingSort = button.dataset.value;
+          render();
+          return;
+        }
+
+        if (action === 'sort-table') {
+          const nextKey = button.dataset.key;
+          if (state.tableSort.key === nextKey) {
+            state.tableSort.direction = state.tableSort.direction === 'desc' ? 'asc' : 'desc';
+          } else {
+            state.tableSort = { key: nextKey, direction: nextKey === 'buyerName' ? 'asc' : 'desc' };
+          }
+          render();
+          return;
+        }
+
+        if (action === 'select-deal') {
+          state.selectedDeal = button.dataset.value;
+          render();
+        }
+      });
+
+      elements.searchInput.addEventListener('input', (event) => {
+        state.search = event.target.value.trim();
+        render();
+      });
+    }
+
+    function renderStaticBits() {
+      const untouchedCallCount = deals.filter((deal) => deal.callStatus === 'Not Called').length;
+      const untouchedStageCount = deals.filter((deal) => deal.trackerStage === 'Needs Contact').length;
+
+      elements.metaStrip.innerHTML = [
+        createMetaPill(payload.dealCount + ' deals in the board'),
+        createMetaPill('As of ' + formatDate(payload.referenceDate)),
+        createMetaPill(countUnique(deals, 'financeManager') + ' FI managers'),
+        createMetaPill(countUnique(deals, 'salesManager') + ' sales managers'),
+        createMetaPill(countUnique(deals, 'salesperson') + ' salespeople'),
+        createMetaPill(countUnique(deals, 'lender') + ' lenders'),
+      ].join('');
+
+      elements.trackerNote.innerHTML =
+        '<strong>Current tracker snapshot:</strong> ' +
+        untouchedStageCount +
+        ' deals are still marked <strong>Needs Contact</strong> and ' +
+        untouchedCallCount +
+        ' are still <strong>Not Called</strong>. That means tonight’s pressure ranking is driven mostly by age, urgency, and owner concentration until the tracker gets updated.';
+    }
+
+    function render() {
+      const filteredDeals = getFilteredDeals();
+      const sortedDeals = getSortedDeals(filteredDeals);
+      const selectedDeal = syncSelectedDeal(sortedDeals);
+      renderToolbarButtons();
+      renderActiveFilters(filteredDeals.length);
+      renderKpis(filteredDeals);
+      renderSignals(filteredDeals);
+      renderRankings(filteredDeals);
+      renderQualityCards(filteredDeals);
+      renderMixCards(filteredDeals);
+      renderQueue(filteredDeals);
+      renderDealTable(sortedDeals);
+      renderDetailPane(selectedDeal);
+      renderFooter(filteredDeals);
+    }
+
+    function getFilteredDeals() {
+      return deals.filter((deal) => {
+        if (state.search && !deal.searchBlob.includes(state.search.toLowerCase())) return false;
+        if (state.priority !== 'All' && deal.priority !== state.priority) return false;
+        if (state.ageBucket !== 'All' && deal.ageBucket !== state.ageBucket) return false;
+        if (state.blocker !== 'All' && deal.mainBlocker !== state.blocker) return false;
+        if (state.stockBucket !== 'All' && deal.stockBucket !== state.stockBucket) return false;
+        if (!matchesInventory(deal)) return false;
+        if (!matchesScope(deal)) return false;
+        if (state.entityGroup && state.entityValue) {
+          const field = groupMeta[state.entityGroup]?.field;
+          if (field && normalizeText(deal[field]) !== state.entityValue) return false;
+        }
+        return true;
+      });
+    }
+
+    function matchesInventory(deal) {
+      if (state.inventory === 'All') return true;
+      if (state.inventory === 'Used') return deal.newUsed === 'Used';
+      if (state.inventory === 'New') return deal.newUsed === 'New';
+      if (state.inventory === 'Lease') return deal.dealType === 'Lease';
+      if (state.inventory === 'Retail') return deal.dealType === 'Retail';
+      return true;
+    }
+
+    function matchesScope(deal) {
+      if (state.scope === 'All') return true;
+      if (state.scope === 'Urgent') return deal.priority === 'Critical' || deal.priority === 'High';
+      if (state.scope === 'Critical') return deal.priority === 'Critical';
+      if (state.scope === 'TwentyOnePlus') return deal.ageBucket === '21+ days';
+      if (state.scope === 'Cash') return deal.lender === 'CASH DEAL';
+      if (state.scope === 'Used') return deal.newUsed === 'Used';
+      if (state.scope === 'New') return deal.newUsed === 'New';
+      if (state.scope === 'Unassigned') return hasAssignmentGap(deal);
+      if (state.scope === 'Outlier') return deal.stockBucket === 'Outlier';
+      return true;
+    }
+
+    function getSortedDeals(dealSet) {
+      const copy = [...dealSet];
+      copy.sort((left, right) => compareValues(left, right, state.tableSort.key, state.tableSort.direction));
+      return copy;
+    }
+
+    function syncSelectedDeal(dealSet) {
+      if (!dealSet.length) {
+        state.selectedDeal = '';
+        return null;
+      }
+
+      const exists = dealSet.find((deal) => deal.dealNumber === state.selectedDeal);
+      if (exists) return exists;
+      state.selectedDeal = dealSet[0].dealNumber;
+      return dealSet[0];
+    }
+
+    function renderToolbarButtons() {
+      renderButtonGroup(elements.scopeButtons, [
+        ['All', 'All'],
+        ['Urgent', 'Urgent'],
+        ['Critical', 'Critical'],
+        ['21+ Days', 'TwentyOnePlus'],
+        ['Cash', 'Cash'],
+        ['Used', 'Used'],
+        ['New', 'New'],
+        ['Assignment Gaps', 'Unassigned'],
+        ['Stock Outlier', 'Outlier'],
+      ], state.scope, 'set-scope');
+
+      renderButtonGroup(elements.priorityButtons, [
+        ['All Priorities', 'All'],
+        ['Critical', 'Critical'],
+        ['High', 'High'],
+        ['Normal', 'Normal'],
+      ], state.priority, 'set-priority');
+
+      renderButtonGroup(elements.ageButtons, [
+        ['All Ages', 'All'],
+        ['21+ days', '21+ days'],
+        ['14-20 days', '14-20 days'],
+        ['7-13 days', '7-13 days'],
+        ['0-6 days', '0-6 days'],
+      ], state.ageBucket, 'set-age');
+
+      renderButtonGroup(elements.inventoryButtons, [
+        ['All Inventory', 'All'],
+        ['Used', 'Used'],
+        ['New', 'New'],
+        ['Retail', 'Retail'],
+        ['Lease', 'Lease'],
+      ], state.inventory, 'set-inventory');
+
+      renderButtonGroup(elements.blockerButtons, [
+        ['All Blockers', 'All'],
+        ['Customer Contact', 'Customer Contact'],
+        ['Stips', 'Stips'],
+        ['Down Payment', 'Down Payment'],
+        ['RouteOne', 'RouteOne'],
+        ['Reynolds', 'Reynolds'],
+        ['Funding', 'Funding'],
+        ['Bank', 'Bank'],
+      ], state.blocker, 'set-blocker');
+
+      renderButtonGroup(elements.stockButtons, [
+        ['All Stock Buckets', 'All'],
+        ['Outlier', 'Outlier'],
+        ['90+ days', '90+ days'],
+        ['60-89 days', '60-89 days'],
+        ['30-59 days', '30-59 days'],
+        ['0-29 days', '0-29 days'],
+      ], state.stockBucket, 'set-stock');
+    }
+
+    function renderActiveFilters(filteredCount) {
+      const pills = [
+        ['View', state.scope !== 'All' ? state.scope : 'All deals'],
+        ['Priority', state.priority !== 'All' ? state.priority : 'All'],
+        ['Age', state.ageBucket !== 'All' ? state.ageBucket : 'All'],
+        ['Inventory', state.inventory !== 'All' ? state.inventory : 'All'],
+        ['Blocker', state.blocker !== 'All' ? state.blocker : 'All'],
+        ['Stock', state.stockBucket !== 'All' ? state.stockBucket : 'All'],
+      ];
+
+      if (state.entityGroup && state.entityValue) pills.push([groupMeta[state.entityGroup].label.slice(0, -1), state.entityValue]);
+      if (state.search) pills.push(['Search', state.search]);
+      pills.push(['Rows', String(filteredCount)]);
+
+      elements.activeFilters.innerHTML = pills
+        .map(([label, value]) => '<span class="active-filter-pill"><strong>' + escapeHtml(label) + ':</strong> ' + escapeHtml(value) + '</span>')
+        .join('');
+    }
+
+    function renderKpis(filteredDeals) {
+      const summary = summarizeDeals(filteredDeals);
+      const cards = [
+        { label: 'Deals in view', value: summary.total, foot: summary.uniqueCustomers + ' customers across ' + summary.uniqueLenders + ' lenders', action: 'set-scope', actionValue: 'All' },
+        { label: 'Urgent backlog', value: summary.urgentDeals, foot: summary.criticalDeals + ' critical and ' + summary.highDeals + ' high-priority deals', action: 'set-scope', actionValue: 'Urgent' },
+        { label: '21+ day deals', value: summary.twentyOnePlus, foot: 'Oldest deal is ' + summary.oldestAge + ' days old', action: 'set-scope', actionValue: 'TwentyOnePlus' },
+        { label: 'Average age', value: summary.averageAge, foot: 'Median age is ' + summary.medianAge + ' days', action: 'set-age', actionValue: 'All' },
+        { label: 'Cash deals', value: summary.cashDeals, foot: summary.usedDeals + ' used deals and ' + summary.newDeals + ' new deals', action: 'set-scope', actionValue: 'Cash' },
+        { label: 'Assignment gaps', value: summary.assignmentGaps, foot: summary.blankFinanceManagers + ' FI blanks, ' + summary.blankSalesManagers + ' sales manager blanks, ' + summary.blankSalespeople + ' salesperson blanks', action: 'set-scope', actionValue: 'Unassigned' },
+        { label: 'Stock outliers', value: summary.stockOutliers, foot: summary.stockThirtyPlus + ' deals already show 30+ stock days', action: 'set-scope', actionValue: 'Outlier' },
+        { label: 'Deal pressure', value: summary.totalPressure, foot: 'Average pressure score is ' + summary.averagePressure + ' per deal', action: 'set-ranking-sort', actionValue: 'pressure' },
+      ];
+
+      elements.kpiGrid.innerHTML = cards.map((card) => {
+        const activeClass =
+          card.action === 'set-scope' && state.scope === card.actionValue ? ' is-active' :
+          card.action === 'set-age' && state.ageBucket === card.actionValue ? ' is-active' :
+          card.action === 'set-ranking-sort' && state.rankingSort === card.actionValue ? ' is-active' : '';
+
+        return '<button class="kpi-button' + activeClass + '" data-action="' + card.action + '" data-value="' + escapeHtml(card.actionValue) + '">' +
+          '<div class="kpi-label">' + escapeHtml(card.label) + '</div>' +
+          '<div class="kpi-value">' + escapeHtml(String(card.value)) + '</div>' +
+          '<div class="kpi-foot">' + escapeHtml(card.foot) + '</div>' +
+        '</button>';
+      }).join('');
+    }
+
+    function renderSignals(filteredDeals) {
+      const financeLeader = buildRoleMetrics(filteredDeals, 'financeManager')[0];
+      const salesLeader = buildRoleMetrics(filteredDeals, 'salesManager')[0];
+      const salespersonLeader = buildRoleMetrics(filteredDeals, 'salesperson')[0];
+      const lenderLeader = buildRoleMetrics(filteredDeals, 'lender')[0];
+
+      const signals = [
+        financeLeader && { title: 'Highest FI load', name: financeLeader.name, meta: financeLeader.totalDeals + ' deals, ' + financeLeader.urgentDeals + ' urgent, avg age ' + financeLeader.averageAge + ' days', group: 'financeManager' },
+        salesLeader && { title: 'Highest sales manager load', name: salesLeader.name, meta: salesLeader.totalDeals + ' deals, pressure ' + salesLeader.pressure + ', oldest ' + salesLeader.oldestAge + ' days', group: 'salesManager' },
+        salespersonLeader && { title: 'Highest salesperson load', name: salespersonLeader.name, meta: salespersonLeader.totalDeals + ' deals, ' + salespersonLeader.criticalDeals + ' critical, ' + salespersonLeader.coverageCount + ' lenders', group: 'salesperson' },
+        lenderLeader && { title: 'Largest lender pocket', name: lenderLeader.name, meta: lenderLeader.totalDeals + ' deals, ' + lenderLeader.urgentDeals + ' urgent, avg age ' + lenderLeader.averageAge + ' days', group: 'lender' },
+      ].filter(Boolean);
+
+      elements.signalGrid.innerHTML = signals.map((signal) => '<button class="signal-card focus-link" data-action="focus-entity" data-group="' + signal.group + '" data-value="' + escapeHtml(signal.name) + '">' +
+        '<h3>' + escapeHtml(signal.title) + '</h3>' +
+        '<div class="signal-name">' + escapeHtml(signal.name) + '</div>' +
+        '<div class="signal-meta">' + escapeHtml(signal.meta) + '</div>' +
+      '</button>').join('');
+    }
+
+    function renderRankings(filteredDeals) {
+      renderButtonGroup(elements.groupButtons, Object.entries(groupMeta).map(([key, info]) => [info.label, key]), state.groupBy, 'set-group');
+      renderButtonGroup(elements.sortButtons, Object.entries(sortMeta).map(([key, label]) => [label, key]), state.rankingSort, 'set-ranking-sort');
+      elements.coverageHeader.textContent = groupMeta[state.groupBy].coverageLabel;
+
+      const metrics = buildRoleMetrics(filteredDeals, state.groupBy);
+      elements.rankingTableBody.innerHTML = metrics.map((metric, index) => {
+        const isSelected = state.entityGroup === state.groupBy && state.entityValue === metric.name;
+        return '<tr class="' + (isSelected ? 'is-selected' : '') + '">' +
+          '<td>' + (index + 1) + '</td>' +
+          '<td><button class="rank-button" data-action="focus-entity" data-group="' + state.groupBy + '" data-value="' + escapeHtml(metric.name) + '">' + escapeHtml(metric.name) + '</button></td>' +
+          '<td>' + metric.totalDeals + '</td>' +
+          '<td>' + metric.pressure + '</td>' +
+          '<td>' + metric.urgentDeals + '</td>' +
+          '<td>' + metric.criticalDeals + '</td>' +
+          '<td>' + metric.averageAge + '</td>' +
+          '<td>' + metric.oldestAge + '</td>' +
+          '<td>' + metric.coverageCount + '</td>' +
+        '</tr>';
+      }).join('');
+    }
+
+    function renderQualityCards(filteredDeals) {
+      const summary = summarizeDeals(filteredDeals);
+      const topMake = topEntry(countBy(filteredDeals, (deal) => deal.make || 'Unknown'));
+      const topLender = topEntry(countBy(filteredDeals, (deal) => deal.lender || 'Unknown'));
+
+      const cards = [
+        { title: 'Portfolio mix', value: summary.usedDeals + ' used / ' + summary.newDeals + ' new', meta: summary.retailDeals + ' retail deals and ' + summary.leaseDeals + ' lease deals' },
+        { title: 'Most common make', value: topMake.label, meta: topMake.count + ' deals, ' + pct(topMake.count, Math.max(summary.total, 1)) + ' of current view' },
+        { title: 'Largest lender exposure', value: topLender.label, meta: topLender.count + ' deals in the filtered pocket' },
+        { title: 'Tracker readiness', value: summary.readyToFund + ' ready / ' + summary.fundedDeals + ' funded', meta: summary.notCalled + ' still marked Not Called, ' + summary.needsContact + ' still in Needs Contact' },
+      ];
+
+      elements.qualityGrid.innerHTML = cards.map((card) => '<article class="quality-card">' +
+        '<h3>' + escapeHtml(card.title) + '</h3>' +
+        '<div class="quality-value">' + escapeHtml(String(card.value)) + '</div>' +
+        '<div class="quality-meta">' + escapeHtml(card.meta) + '</div>' +
+      '</article>').join('');
+    }
+
+    function renderMixCards(filteredDeals) {
+      renderMixCard(elements.priorityMix, 'Priority Mix', 'Click a bar to focus by priority', toChartItems([
+        ['Critical', countWhere(filteredDeals, (deal) => deal.priority === 'Critical'), 'set-priority', 'Critical'],
+        ['High', countWhere(filteredDeals, (deal) => deal.priority === 'High'), 'set-priority', 'High'],
+        ['Normal', countWhere(filteredDeals, (deal) => deal.priority === 'Normal'), 'set-priority', 'Normal'],
+      ], filteredDeals.length));
+
+      renderMixCard(elements.ageMix, 'Age Buckets', 'Click to isolate the aging lane', toChartItems([
+        ['21+ days', countWhere(filteredDeals, (deal) => deal.ageBucket === '21+ days'), 'set-age', '21+ days'],
+        ['14-20 days', countWhere(filteredDeals, (deal) => deal.ageBucket === '14-20 days'), 'set-age', '14-20 days'],
+        ['7-13 days', countWhere(filteredDeals, (deal) => deal.ageBucket === '7-13 days'), 'set-age', '7-13 days'],
+        ['0-6 days', countWhere(filteredDeals, (deal) => deal.ageBucket === '0-6 days'), 'set-age', '0-6 days'],
+      ], filteredDeals.length));
+
+      renderMixCard(elements.lenderMix, 'Top Lenders', 'Largest lender pockets in the current view', toChartItemsFromMap(countBy(filteredDeals, (deal) => deal.lender || 'Unknown'), filteredDeals.length, 'focus-entity', 'lender'));
+      renderMixCard(elements.inventoryMix, 'Inventory Mix', 'Retail, lease, used, and new mix', toChartItems([
+        ['Used', countWhere(filteredDeals, (deal) => deal.newUsed === 'Used'), 'set-inventory', 'Used'],
+        ['New', countWhere(filteredDeals, (deal) => deal.newUsed === 'New'), 'set-inventory', 'New'],
+        ['Retail', countWhere(filteredDeals, (deal) => deal.dealType === 'Retail'), 'set-inventory', 'Retail'],
+        ['Lease', countWhere(filteredDeals, (deal) => deal.dealType === 'Lease'), 'set-inventory', 'Lease'],
+      ], filteredDeals.length));
+      renderMixCard(elements.makeMix, 'Top Makes', 'Click a make to search it instantly', toChartItemsFromMap(countBy(filteredDeals, (deal) => deal.make || 'Unknown'), filteredDeals.length, 'search-token'));
+      renderMixCard(elements.stockMix, 'Stock Days Risk', 'Click a bucket to isolate inventory aging exposure', toChartItems([
+        ['Outlier', countWhere(filteredDeals, (deal) => deal.stockBucket === 'Outlier'), 'set-stock', 'Outlier'],
+        ['90+ days', countWhere(filteredDeals, (deal) => deal.stockBucket === '90+ days'), 'set-stock', '90+ days'],
+        ['60-89 days', countWhere(filteredDeals, (deal) => deal.stockBucket === '60-89 days'), 'set-stock', '60-89 days'],
+        ['30-59 days', countWhere(filteredDeals, (deal) => deal.stockBucket === '30-59 days'), 'set-stock', '30-59 days'],
+        ['0-29 days', countWhere(filteredDeals, (deal) => deal.stockBucket === '0-29 days'), 'set-stock', '0-29 days'],
+      ], filteredDeals.length));
+    }
+
+    function renderQueue(filteredDeals) {
+      const queue = [...filteredDeals].sort((left, right) => right.pressureScore - left.pressureScore || (right.ageDays || 0) - (left.ageDays || 0)).slice(0, 12);
+
+      elements.queueGrid.innerHTML = queue.map((deal) => '<button class="queue-card' + (state.selectedDeal === deal.dealNumber ? ' is-active' : '') + '" data-action="select-deal" data-value="' + escapeHtml(deal.dealNumber) + '">' +
+        '<div class="queue-card-header">' +
+          '<div><div class="queue-title">' + escapeHtml(deal.buyerName || 'Unknown customer') + '</div><div class="cell-muted">Deal ' + escapeHtml(deal.dealNumber) + ' · Stock ' + escapeHtml(deal.stockNumber || 'n/a') + '</div></div>' +
+          '<span class="badge ' + priorityColorClass[deal.priority] + '">' + escapeHtml(deal.priority) + '</span>' +
+        '</div>' +
+        '<div class="queue-grid-meta">' +
+          queueMeta('Age', formatMaybeNumber(deal.ageDays, 'days')) +
+          queueMeta('Pressure', String(deal.pressureScore)) +
+          queueMeta('FI Manager', deal.financeManager || 'Unassigned') +
+          queueMeta('Salesperson', deal.salesperson || 'Unassigned') +
+          queueMeta('Lender', deal.lender || 'Unknown') +
+          queueMeta('Vehicle', deal.vehicle || 'Vehicle not set') +
+        '</div>' +
+      '</button>').join('');
+    }
+
+    function renderDealTable(sortedDeals) {
+      elements.dealTableBody.innerHTML = sortedDeals.map((deal) => {
+        const selected = state.selectedDeal === deal.dealNumber ? ' is-selected' : '';
+        return '<tr class="' + selected + '">' +
+          '<td><button class="deal-row-button" data-action="select-deal" data-value="' + escapeHtml(deal.dealNumber) + '"><strong>' + escapeHtml(deal.dealNumber) + '</strong></button></td>' +
+          '<td><div class="list-name"><strong>' + escapeHtml(deal.buyerName || 'Unknown customer') + '</strong><span class="cell-muted">' + escapeHtml(deal.stockNumber || 'No stock #') + '</span></div></td>' +
+          '<td><span class="badge ' + priorityColorClass[deal.priority] + '">' + escapeHtml(deal.priority) + '</span></td>' +
+          '<td>' + escapeHtml(formatMaybeNumber(deal.ageDays, 'days')) + '</td>' +
+          '<td>' + deal.pressureScore + '</td>' +
+          '<td>' + escapeHtml(deal.financeManager || 'Unassigned') + '</td>' +
+          '<td>' + escapeHtml(deal.salesManager || 'Unassigned') + '</td>' +
+          '<td>' + escapeHtml(deal.salesperson || 'Unassigned') + '</td>' +
+          '<td>' + escapeHtml(deal.lender || 'Unknown') + '</td>' +
+          '<td>' + escapeHtml(deal.vehicle || 'Vehicle not set') + '</td>' +
+          '<td>' + escapeHtml(deal.stockNumber || '') + '</td>' +
+          '<td>' + escapeHtml(deal.callStatus || 'Not set') + '</td>' +
+        '</tr>';
+      }).join('');
+    }
+
+    function renderDetailPane(deal) {
+      if (!deal) {
+        elements.detailPane.innerHTML = '<h3>No deal selected</h3><p class="microcopy">Click a deal row or queue card to see the full record.</p>';
+        return;
+      }
+
+      const detailItems = [
+        ['Priority', badgeHtml(deal.priority)], ['Pressure Score', String(deal.pressureScore)], ['Deal Number', deal.dealNumber], ['Customer', deal.buyerName || 'Unknown'], ['Deal Date', deal.dealDate ? formatDate(deal.dealDate) : 'Unknown'], ['Deal Age', formatMaybeNumber(deal.ageDays, 'days')],
+        ['Finance Manager', focusEntityButton('financeManager', deal.financeManager)], ['Sales Manager', focusEntityButton('salesManager', deal.salesManager)], ['Salesperson', focusEntityButton('salesperson', deal.salesperson)], ['Lender', focusEntityButton('lender', deal.lender)],
+        ['Vehicle', deal.vehicle || 'Unknown'], ['Stock #', deal.stockNumber || 'Unknown'], ['New / Used', deal.newUsed || 'Unknown'], ['Deal Type', deal.dealType || 'Unknown'], ['Deal Status', deal.dealStatus || 'Unknown'], ['Deal Category', deal.dealCategory || 'Unknown'],
+        ['Desk Manager', deal.deskManager || 'Unknown'], ['Stock Days Raw', deal.daysInStockRaw || 'Unknown'], ['Stock Bucket', deal.stockBucket || 'Unknown'], ['Stage', deal.trackerStage || 'Unknown'], ['Main Blocker', deal.mainBlocker || 'Unknown'], ['Call Status', deal.callStatus || 'Unknown'],
+        ['Next Owner', deal.nextOwner || 'Unknown'], ['Next Action', deal.nextAction || 'Not set'], ['Last Contact', deal.lastContact || 'Not set'], ['Stips Needed', deal.stipsNeeded || 'Not set'], ['Stips In', deal.stipsIn || 'Not set'], ['Down Payment', deal.downPayment || 'Not set'],
+        ['RouteOne', deal.routeOne || 'Not set'], ['Reynolds', deal.reynolds || 'Not set'], ['Ready to Fund', deal.readyToFund || 'No'], ['Funded', deal.funded || 'No'], ['Notes', deal.notes || 'No notes yet'],
+      ];
+
+      elements.detailPane.innerHTML =
+        '<div><h3>' + escapeHtml(deal.buyerName || 'Unknown customer') + '</h3><p class="panel-subtitle">Deal ' + escapeHtml(deal.dealNumber) + ' · ' + escapeHtml(deal.vehicle || 'Vehicle not set') + '</p></div>' +
+        '<div class="button-group">' +
+          '<button class="focus-link" data-action="focus-entity" data-group="financeManager" data-value="' + escapeHtml(deal.financeManager || 'Unassigned') + '">More from FI manager</button>' +
+          '<button class="focus-link" data-action="focus-entity" data-group="salesperson" data-value="' + escapeHtml(deal.salesperson || 'Unassigned') + '">More from salesperson</button>' +
+        '</div>' +
+        '<div class="detail-grid">' +
+          detailItems.map(([label, value]) => '<div class="detail-item' + ((label === 'Notes' || label === 'Next Action') ? ' full' : '') + '">' +
+            '<div class="detail-label">' + escapeHtml(label) + '</div><div class="detail-value">' + value + '</div></div>').join('') +
+        '</div>';
+    }
+
+    function renderFooter(filteredDeals) {
+      const summary = summarizeDeals(filteredDeals);
+      elements.footerNote.innerHTML =
+        'Snapshot generated on ' + escapeHtml(formatDateTime(payload.generatedAt)) +
+        ' from <strong>' + escapeHtml(payload.sourceWorkbook) + '</strong> and <strong>' + escapeHtml(payload.trackerWorkbook) + '</strong>. ' +
+        'Current view contains <strong>' + summary.total + '</strong> deals with <strong>' + summary.urgentDeals + '</strong> urgent and <strong>' + summary.notCalled + '</strong> still marked Not Called.';
+    }
+
+    function buildRoleMetrics(dealSet, groupKey) {
+      const field = groupMeta[groupKey].field;
+      const groups = new Map();
+
+      for (const deal of dealSet) {
+        const name = normalizeText(deal[field]) || 'Unassigned';
+        if (!groups.has(name)) {
+          groups.set(name, {
+            name,
+            totalDeals: 0,
+            urgentDeals: 0,
+            criticalDeals: 0,
+            highDeals: 0,
+            pressure: 0,
+            ageValues: [],
+            oldestAge: 0,
+            counterpartSet: new Set(),
+          });
+        }
+
+        const group = groups.get(name);
+        group.totalDeals += 1;
+        group.pressure += deal.pressureScore;
+        if (deal.priority === 'Critical') group.criticalDeals += 1;
+        if (deal.priority === 'High') group.highDeals += 1;
+        if (deal.priority === 'Critical' || deal.priority === 'High') group.urgentDeals += 1;
+        if (Number.isFinite(deal.ageDays)) {
+          group.ageValues.push(deal.ageDays);
+          group.oldestAge = Math.max(group.oldestAge, deal.ageDays);
+        }
+
+        if (groupKey === 'financeManager' || groupKey === 'salesManager') {
+          group.counterpartSet.add(normalizeText(deal.salesperson) || 'Unassigned');
+        } else if (groupKey === 'salesperson') {
+          group.counterpartSet.add(normalizeText(deal.lender) || 'Unknown');
+        } else {
+          group.counterpartSet.add(normalizeText(deal.financeManager) || 'Unassigned');
+        }
+      }
+
+      const metrics = [...groups.values()].map((group) => ({
+        ...group,
+        averageAge: round(average(group.ageValues), 1),
+        coverageCount: group.counterpartSet.size,
+      }));
+
+      metrics.sort((left, right) => {
+        if (state.rankingSort === 'critical') return right.criticalDeals - left.criticalDeals || right.urgentDeals - left.urgentDeals || right.pressure - left.pressure;
+        if (state.rankingSort === 'averageAge') return right.averageAge - left.averageAge || right.oldestAge - left.oldestAge || right.pressure - left.pressure;
+        if (state.rankingSort === 'volume') return right.totalDeals - left.totalDeals || right.pressure - left.pressure || right.oldestAge - left.oldestAge;
+        return right.pressure - left.pressure || right.urgentDeals - left.urgentDeals || right.totalDeals - left.totalDeals;
+      });
+
+      return metrics;
+    }
+
+    function summarizeDeals(dealSet) {
+      const ageValues = dealSet.map((deal) => deal.ageDays).filter(Number.isFinite);
+      return {
+        total: dealSet.length,
+        uniqueCustomers: countUnique(dealSet, 'buyerName'),
+        uniqueLenders: countUnique(dealSet, 'lender'),
+        urgentDeals: countWhere(dealSet, (deal) => deal.priority === 'Critical' || deal.priority === 'High'),
+        criticalDeals: countWhere(dealSet, (deal) => deal.priority === 'Critical'),
+        highDeals: countWhere(dealSet, (deal) => deal.priority === 'High'),
+        twentyOnePlus: countWhere(dealSet, (deal) => deal.ageBucket === '21+ days'),
+        averageAge: round(average(ageValues), 1),
+        medianAge: round(median(ageValues), 1),
+        oldestAge: ageValues.length ? Math.max(...ageValues) : 0,
+        cashDeals: countWhere(dealSet, (deal) => deal.lender === 'CASH DEAL'),
+        usedDeals: countWhere(dealSet, (deal) => deal.newUsed === 'Used'),
+        newDeals: countWhere(dealSet, (deal) => deal.newUsed === 'New'),
+        retailDeals: countWhere(dealSet, (deal) => deal.dealType === 'Retail'),
+        leaseDeals: countWhere(dealSet, (deal) => deal.dealType === 'Lease'),
+        assignmentGaps: countWhere(dealSet, hasAssignmentGap),
+        blankFinanceManagers: countWhere(dealSet, (deal) => !normalizeText(deal.financeManager)),
+        blankSalesManagers: countWhere(dealSet, (deal) => !normalizeText(deal.salesManager)),
+        blankSalespeople: countWhere(dealSet, (deal) => !normalizeText(deal.salesperson)),
+        stockOutliers: countWhere(dealSet, (deal) => deal.stockBucket === 'Outlier'),
+        stockThirtyPlus: countWhere(dealSet, (deal) => ['30-59 days', '60-89 days', '90+ days', 'Outlier'].includes(deal.stockBucket)),
+        totalPressure: dealSet.reduce((sum, deal) => sum + deal.pressureScore, 0),
+        averagePressure: round(average(dealSet.map((deal) => deal.pressureScore)), 1),
+        readyToFund: countWhere(dealSet, (deal) => deal.readyToFund === 'Yes'),
+        fundedDeals: countWhere(dealSet, (deal) => deal.funded === 'Yes'),
+        notCalled: countWhere(dealSet, (deal) => deal.callStatus === 'Not Called'),
+        needsContact: countWhere(dealSet, (deal) => deal.trackerStage === 'Needs Contact'),
+      };
+    }
+
+    function renderButtonGroup(container, items, activeValue, action) {
+      container.innerHTML = items.map(([label, value]) => '<button class="chip-button' + (activeValue === value ? ' is-active' : '') + '" data-action="' + action + '" data-value="' + escapeHtml(value) + '">' + escapeHtml(label) + '</button>').join('');
+    }
+
+    function renderMixCard(container, title, subtitle, items) {
+      const topItems = items.filter((item) => item.count > 0).slice(0, 6);
+      container.innerHTML = '<div><h3>' + escapeHtml(title) + '</h3><div class="microcopy">' + escapeHtml(subtitle) + '</div></div>' +
+        '<div class="mix-list">' + (topItems.length ? topItems.map(renderMixItem).join('') : '<div class="microcopy">No data in this filtered view.</div>') + '</div>';
+    }
+
+    function renderMixItem(item) {
+      const attrs = item.action ? ' data-action="' + item.action + '" data-value="' + escapeHtml(item.value) + '"' + (item.group ? ' data-group="' + item.group + '"' : '') : '';
+      return '<button class="list-button"' + attrs + '><div class="list-button-inner">' +
+        '<div class="list-line"><span class="list-label">' + escapeHtml(item.label) + '</span><span class="cell-muted">' + item.count + ' · ' + item.share + '</span></div>' +
+        '<div class="bar-track"><div class="bar-fill" style="width:' + item.percent + '%"></div></div>' +
+      '</div></button>';
+    }
+
+    function toChartItems(entries, total) {
+      return entries.map(([label, count, action, value]) => ({ label, count, percent: pctNumber(count, total), share: pct(count, total), action, value }));
+    }
+
+    function toChartItemsFromMap(map, total, action, group) {
+      return [...map.entries()].sort((left, right) => right[1] - left[1] || String(left[0]).localeCompare(String(right[0]))).map(([label, count]) => ({
+        label, count, percent: pctNumber(count, total), share: pct(count, total), action, value: label, group,
+      }));
+    }
+
+    function getPressureScore(deal) {
+      const priorityWeight = { Critical: 5, High: 3, Normal: 1 }[deal.priority] || 1;
+      const stageWeight = { 'Needs Contact': 3.2, 'Waiting Customer': 2.7, 'Waiting Internal': 2.4, 'Ready to Fund': 0.8, Funded: 0 }[deal.trackerStage] || 1.8;
+      const blockerWeight = { 'Customer Contact': 2.4, Stips: 2.7, 'Down Payment': 2.8, RouteOne: 1.9, Reynolds: 1.9, Bank: 2.2, Funding: 1.6, None: 0 }[deal.mainBlocker] || 1.2;
+      let score = priorityWeight * 12;
+      if (Number.isFinite(deal.ageDays)) score += deal.ageDays * 1.35;
+      score += stageWeight * 6;
+      score += blockerWeight * 4;
+      if (deal.callStatus === 'Not Called') score += 8;
+      if (deal.readyToFund === 'Yes') score -= 6;
+      if (deal.funded === 'Yes') score -= 42;
+      if (deal.stockBucket === 'Outlier') score += 5;
+      return Math.max(0, Math.round(score));
+    }
+
+    function hasAssignmentGap(deal) {
+      return !normalizeText(deal.financeManager) || !normalizeText(deal.salesManager) || !normalizeText(deal.salesperson);
+    }
+
+    function compareValues(left, right, key, direction) {
+      const order = direction === 'asc' ? 1 : -1;
+      const a = left[key];
+      const b = right[key];
+      if (key === 'priority') return (priorityOrder[a] - priorityOrder[b]) * -order || compareText(left.buyerName, right.buyerName);
+      if (typeof a === 'number' && typeof b === 'number') return (a - b) * order;
+      return compareText(a, b) * order;
+    }
+
+    function compareText(a, b) {
+      return String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base', numeric: true });
+    }
+
+    function countUnique(collection, key) {
+      return new Set(collection.map((item) => normalizeText(item[key])).filter(Boolean)).size;
+    }
+
+    function countWhere(collection, predicate) {
+      let count = 0;
+      for (const item of collection) if (predicate(item)) count += 1;
+      return count;
+    }
+
+    function countBy(collection, getKey) {
+      const map = new Map();
+      for (const item of collection) {
+        const key = normalizeText(getKey(item)) || 'Unknown';
+        map.set(key, (map.get(key) || 0) + 1);
+      }
+      return map;
+    }
+
+    function topEntry(map) {
+      const entries = [...map.entries()].sort((left, right) => right[1] - left[1]);
+      return entries.length ? { label: entries[0][0], count: entries[0][1] } : { label: 'None', count: 0 };
+    }
+
+    function average(values) {
+      return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+    }
+
+    function median(values) {
+      if (!values.length) return 0;
+      const sorted = [...values].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+
+    function round(value, digits) {
+      const factor = Math.pow(10, digits);
+      return Math.round((value + Number.EPSILON) * factor) / factor;
+    }
+
+    function pct(part, total) {
+      return total ? round((part / total) * 100, 1) + '%' : '0%';
+    }
+
+    function pctNumber(part, total) {
+      return total ? Math.max(4, round((part / total) * 100, 1)) : 0;
+    }
+
+    function formatDate(value) {
+      const date = new Date(value + 'T00:00:00');
+      return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
+    }
+
+    function formatDateTime(value) {
+      const date = new Date(value);
+      return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(date);
+    }
+
+    function formatMaybeNumber(value, suffix) {
+      return Number.isFinite(value) ? value + ' ' + suffix : 'Unknown';
+    }
+
+    function normalizeText(value) {
+      return String(value || '').trim();
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function queueMeta(label, value) {
+      return '<div><div class="queue-meta-label">' + escapeHtml(label) + '</div><div class="queue-meta-value">' + escapeHtml(value) + '</div></div>';
+    }
+
+    function createMetaPill(text) {
+      return '<span class="meta-pill">' + escapeHtml(text) + '</span>';
+    }
+
+    function badgeHtml(value) {
+      return '<span class="badge ' + (priorityColorClass[value] || '') + '">' + escapeHtml(value || 'Unknown') + '</span>';
+    }
+
+    function focusEntityButton(group, value) {
+      const safeValue = normalizeText(value) || 'Unassigned';
+      return '<button class="focus-link" data-action="focus-entity" data-group="' + group + '" data-value="' + escapeHtml(safeValue) + '">' + escapeHtml(safeValue) + '</button>';
+    }
+
+    function downloadCsv() {
+      const headers = ['dealNumber','buyerName','priority','ageDays','pressureScore','financeManager','salesManager','salesperson','lender','stockNumber','vehicle','dealType','dealStatus','trackerStage','mainBlocker','callStatus','readyToFund','funded','nextOwner','nextAction','notes'];
+      const rows = getSortedDeals(getFilteredDeals()).map((deal) => headers.map((key) => csvEscape(deal[key])));
+      const csv = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'funding-dashboard-view.csv';
+      anchor.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function csvEscape(value) {
+      const text = String(value ?? '');
+      return text.includes(',') || text.includes('"') || text.includes('\n') ? '"' + text.replace(/"/g, '""') + '"' : text;
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "vin": "1C4RJFBG5MC654321",
+  "year": 2021,
+  "make": "Jeep",
+  "model": "Grand Cherokee",
+  "trim": "Limited",
+  "price": 36000,
+  "marketValue": 34500,
+  "mileage": 28000,
+  "reconStage": "Detail",
+  "keyLocation": "Locker A-3",
+  "carfax": {
+    "owners": 1,
+    "accidents": 0,
+    "services": 12,
+    "brands": []
+  },
+  "photoCount": 18
+}

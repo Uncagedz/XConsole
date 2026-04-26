@@ -1,0 +1,6 @@
+{
+  "carfax": {
+    "vin.input": "#vin",
+    "vin.submit": "#run_vhr_button"
+  }
+}

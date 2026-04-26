@@ -1,0 +1,11 @@
+{
+  "id": "cust-demo-001",
+  "name": "Sample Customer",
+  "creditScore": 685,
+  "incomeMonthly": 5200,
+  "dti": 0.37,
+  "state": "MI",
+  "downPaymentDesired": 3000,
+  "termDesired": 72,
+  "usage": "personal"
+}
