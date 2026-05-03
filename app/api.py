@@ -661,7 +661,7 @@ def _facebook_suggested_down_payment(vehicle_or_price: Any = None) -> int:
         price_number = _to_float(price)
         trade_number = _to_float(jd_trade)
         if price_number and trade_number and trade_number > 0:
-            financed_basis = price_number + FACEBOOK_MARKETPLACE_PRICE_BUMP
+            financed_basis = price_number + DEFAULT_BANK_FEES
             ltv = ((financed_basis + (financed_basis * DEFAULT_BANK_TAX_RATE)) / trade_number) * 100
     if ltv is None:
         suggested = FACEBOOK_MARKETPLACE_DOWN_PAYMENT
@@ -2527,7 +2527,7 @@ def _bank_sale_price_from_inventory_price(inventory_price: float | int | str | N
     price = _to_float(inventory_price)
     if price is None:
         return None
-    return float(_facebook_marketplace_price(price) or price)
+    return float(price + DEFAULT_BANK_FEES)
 
 
 def _jd_power_ltv_from_pricing(*, inventory_price: float | int | str | None, jd_trade_value: float | int | str | None) -> dict[str, float | None]:
