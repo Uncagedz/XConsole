@@ -2248,7 +2248,14 @@ class Lister:
         log('Checking Facebook session for "%s" ..' % account_info["name"], "main")
 
         cookies_loaded = self._load_saved_cookies()
-        log(f"Saved cookie restore {'loaded' if cookies_loaded else 'not found'}; checking Marketplace session.", "sub")
+        profile_present = bool((self.profile_dir / "Default").exists())
+        if cookies_loaded or profile_present:
+            log(
+                f"Saved Facebook session detected (cookies={'yes' if cookies_loaded else 'no'}, profile={'yes' if profile_present else 'no'}); checking Marketplace session.",
+                "sub",
+            )
+        else:
+            log("Saved Facebook session not found; checking Marketplace session.", "sub")
         status = self._session_status(quick_check=True)
         log(
             f"Session probe state: {status.get('state') or 'unknown'}"
@@ -2347,6 +2354,17 @@ class Lister:
             if self._click_account_chooser(account_info):
                 time.sleep(self.account_chooser_wait_seconds)
         status = self._session_status(quick_check=False)
+        if status.get("state") == "authenticated_no_form":
+            try:
+                self._safe_get(self.marketplace_vehicle_url, wait_seconds=self.post_navigation_wait_seconds)
+                status = self._wait_for_vehicle_form(timeout_seconds=10.0)
+            except Exception:
+                pass
+        elif status.get("state") == "login_required":
+            time.sleep(max(1.0, self.account_chooser_wait_seconds))
+            retry = self._session_status(quick_check=False)
+            if retry.get("authenticated") and retry.get("ok"):
+                status = retry
         log(f"Post-login session result: {status.get('state') or 'unknown'}", "sub")
         if status.get("authenticated") and status.get("ok"):
             log("Logged in Successfully.", "success")

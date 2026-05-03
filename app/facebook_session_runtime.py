@@ -23,6 +23,10 @@ def saved_sessions_dir(root: Path) -> Path:
     return runtime_dir(root) / "facebook_saved_sessions"
 
 
+def seeded_cookie_file(root: Path) -> Path:
+    return root / "data" / "facebook_session_cookies.json"
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -92,17 +96,46 @@ def ensure_runtime_session(root: Path, *, force_restore: bool = False) -> dict[s
     runtime.mkdir(parents=True, exist_ok=True)
     active_cookie = active_cookie_file(root)
     active_profile = active_profile_dir(root)
-    current_valid = runtime_session_available(root)
+    active_cookie_valid = cookie_file_looks_valid(active_cookie)
+    active_profile_valid = profile_dir_looks_valid(active_profile)
+    current_valid = active_cookie_valid or active_profile_valid
     saved = latest_saved_session(root)
+    seeded_cookie = seeded_cookie_file(root)
     if current_valid and not force_restore:
+        restored = False
+        source = "runtime"
+        if not active_cookie_valid:
+            saved_cookie = saved.get("cookie_path") if saved else None
+            if isinstance(saved_cookie, Path) and cookie_file_looks_valid(saved_cookie):
+                active_cookie.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(saved_cookie, active_cookie)
+                restored = True
+                source = str(saved.get("session_dir") or "")
+            elif cookie_file_looks_valid(seeded_cookie):
+                active_cookie.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(seeded_cookie, active_cookie)
+                restored = True
+                source = str(seeded_cookie)
         return {
             "ok": True,
-            "restored": False,
-            "source": "runtime",
+            "restored": restored,
+            "source": source,
             "cookie_path": str(active_cookie) if active_cookie.exists() else "",
             "profile_path": str(active_profile) if active_profile.exists() else "",
         }
     if not saved:
+        if cookie_file_looks_valid(seeded_cookie):
+            active_cookie.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(seeded_cookie, active_cookie)
+            return {
+                "ok": runtime_session_available(root),
+                "restored": True,
+                "source": str(seeded_cookie),
+                "restored_cookie": True,
+                "restored_profile": False,
+                "cookie_path": str(active_cookie) if active_cookie.exists() else "",
+                "profile_path": str(active_profile) if active_profile.exists() else "",
+            }
         return {
             "ok": current_valid,
             "restored": False,
@@ -144,6 +177,7 @@ def archive_runtime_session(root: Path) -> dict[str, Any]:
     archive_root.mkdir(parents=True, exist_ok=True)
     active_cookie = active_cookie_file(root)
     active_profile = active_profile_dir(root)
+    seed_cookie = seeded_cookie_file(root)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     destination = archive_root / stamp
     destination.mkdir(parents=True, exist_ok=True)
@@ -152,6 +186,8 @@ def archive_runtime_session(root: Path) -> dict[str, Any]:
     copied_profile = False
     if cookie_file_looks_valid(active_cookie):
         shutil.copy2(active_cookie, destination / "facebook_session_cookies.json")
+        seed_cookie.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(active_cookie, seed_cookie)
         copied_cookie = True
     if profile_dir_looks_valid(active_profile):
         shutil.copytree(active_profile, destination / "facebook_auth_profile", dirs_exist_ok=True)
