@@ -234,7 +234,11 @@ class FacebookPostRequest(BaseModel):
     vin: str = Field(..., min_length=3)
     title: str = Field(..., min_length=3)
     price: str | int | float = Field(...)
+    model: str | None = None
     mileage: str | int | None = None
+    body_style: str | None = None
+    fuel_type: str | None = None
+    condition: str | None = None
     drivetrain: str | None = None
     engine: str | None = None
     transmission: str | None = None
@@ -4623,6 +4627,142 @@ def _extract_asset_links_from_html(html_text: str, *, base_url: str | None = Non
     return {"sticker_url": sticker_url, "carfax_url": carfax_url}
 
 
+def _normalize_marketplace_body_style(value: Any) -> str:
+    lowered = str(value or "").strip().lower()
+    if not lowered:
+        return ""
+    if any(token in lowered for token in ("minivan", "van")) and "truck" not in lowered:
+        return "Minivan" if "minivan" in lowered else "Van"
+    if any(token in lowered for token in ("convertible", "roadster", "cabriolet", "spyder", "soft top")):
+        return "Convertible"
+    if any(token in lowered for token in ("coupe",)):
+        return "Coupe"
+    if any(token in lowered for token in ("hatchback", "liftback")):
+        return "Hatchback"
+    if any(token in lowered for token in ("wagon",)):
+        return "Wagon"
+    if any(token in lowered for token in ("truck", "pickup", "supercrew", "crew cab", "super cab", "quad cab", "king cab", "double cab")):
+        return "Truck"
+    if any(token in lowered for token in ("suv", "sport utility", "utility", "crossover")):
+        return "SUV"
+    if any(token in lowered for token in ("sedan",)):
+        return "Sedan"
+    return str(value or "").strip()
+
+
+def _normalize_marketplace_fuel_type(value: Any) -> str:
+    lowered = str(value or "").strip().lower()
+    if not lowered:
+        return ""
+    if any(token in lowered for token in ("electric", "bev", "ev")):
+        return "Electric"
+    if any(token in lowered for token in ("hybrid", "plug-in", "plug in", "phev", "4xe")):
+        return "Hybrid"
+    if any(token in lowered for token in ("diesel", "tdi", "duramax", "cummins", "power stroke", "ecodiesel")):
+        return "Diesel"
+    if any(token in lowered for token in ("gasoline", "regular unleaded", "premium unleaded", "unleaded", "flex fuel")):
+        return "Gasoline"
+    return str(value or "").strip()
+
+
+def _extract_ddc_state_payloads(html_text: str, bucket: str) -> list[dict[str, Any]]:
+    pattern = rf"DDC\.WS\.state\['{re.escape(bucket)}'\]\['[^']+'\]\s*=\s*(\{{.*?\}}\s*);"
+    payloads: list[dict[str, Any]] = []
+    for match in re.finditer(pattern, html_text, flags=re.IGNORECASE | re.DOTALL):
+        raw = str(match.group(1) or "").strip()
+        if raw.endswith(";"):
+            raw = raw[:-1].strip()
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            payloads.append(parsed)
+    return payloads
+
+
+def _extract_quick_specs_from_html(html_text: str) -> dict[str, Any]:
+    candidates = _extract_ddc_state_payloads(html_text, "ws-quick-specs")
+    candidates.extend(_extract_ddc_state_payloads(html_text, "ws-vehicle-ctas"))
+    merged: dict[str, Any] = {}
+    for payload in candidates:
+        quick_specs = payload.get("quickSpecs") if isinstance(payload.get("quickSpecs"), dict) else {}
+        vehicle = payload.get("vehicle") if isinstance(payload.get("vehicle"), dict) else {}
+
+        def _pick(*values: Any) -> str:
+            for value in values:
+                if isinstance(value, dict):
+                    inner = value.get("en_US") or value.get("value")
+                    if inner not in (None, ""):
+                        return str(inner).strip()
+                elif value not in (None, ""):
+                    return str(value).strip()
+            return ""
+
+        spec = {
+            "year": _pick(vehicle.get("year")),
+            "make": _pick(vehicle.get("make")),
+            "model": _pick(vehicle.get("model"), quick_specs.get("model")),
+            "body_style": _pick(quick_specs.get("bodyStyle"), vehicle.get("bodyStyle"), vehicle.get("normalBodyStyle")),
+            "marketplace_body_style": _normalize_marketplace_body_style(
+                _pick(quick_specs.get("bodyStyle"), vehicle.get("bodyStyle"), vehicle.get("normalBodyStyle"))
+            ),
+            "fuel_type": _pick(quick_specs.get("fuelType"), vehicle.get("fuelType"), vehicle.get("normalFuelType")),
+            "marketplace_fuel_type": _normalize_marketplace_fuel_type(
+                _pick(quick_specs.get("fuelType"), vehicle.get("fuelType"), vehicle.get("normalFuelType"))
+            ),
+            "drivetrain": _pick(quick_specs.get("driveLine"), vehicle.get("driveLine"), vehicle.get("normalDriveLine")),
+            "transmission": _pick(quick_specs.get("transmission"), vehicle.get("transmission"), vehicle.get("normalTransmission")),
+            "engine": _pick(quick_specs.get("engine"), vehicle.get("engine")),
+            "engine_size": _pick(vehicle.get("engineSize")),
+            "exterior": _pick(quick_specs.get("exteriorColor"), vehicle.get("exteriorColor"), quick_specs.get("normalExteriorColor")),
+            "interior": _pick(quick_specs.get("interiorColor"), vehicle.get("interiorColor"), quick_specs.get("normalInteriorColor")),
+            "stock_number": _pick(quick_specs.get("stockNumber"), vehicle.get("stockNumber")),
+        }
+        city = quick_specs.get("cityFuelEconomy") or vehicle.get("cityFuelEconomy")
+        highway = quick_specs.get("highwayFuelEconomy") or vehicle.get("highwayFuelEconomy")
+        combined = quick_specs.get("combinedFuelEfficiency") or vehicle.get("combinedFuelEfficiency")
+        if isinstance(city, dict):
+            spec["mpg_city"] = city.get("imperial") or city.get("value")
+        elif city not in (None, ""):
+            spec["mpg_city"] = city
+        if isinstance(highway, dict):
+            spec["mpg_hwy"] = highway.get("imperial") or highway.get("value")
+        elif highway not in (None, ""):
+            spec["mpg_hwy"] = highway
+        if isinstance(combined, dict):
+            spec["mpg_combined"] = combined.get("imperial") or combined.get("value")
+        elif combined not in (None, ""):
+            spec["mpg_combined"] = combined
+        for key, value in spec.items():
+            if value not in (None, "", [], {}):
+                merged[key] = value
+    return merged
+
+
+def _quick_spec_highlights(quick_specs: dict[str, Any]) -> list[str]:
+    if not isinstance(quick_specs, dict):
+        return []
+    highlights: list[str] = []
+    body_style = str(quick_specs.get("body_style") or "").strip()
+    if body_style:
+        highlights.append(f"Body: {body_style}")
+    drivetrain = str(quick_specs.get("drivetrain") or "").strip()
+    if drivetrain:
+        highlights.append(f"Drive: {drivetrain}")
+    fuel_type = str(quick_specs.get("fuel_type") or "").strip()
+    if fuel_type:
+        highlights.append(f"Fuel: {fuel_type}")
+    mpg_city = quick_specs.get("mpg_city")
+    mpg_hwy = quick_specs.get("mpg_hwy")
+    mpg_combined = quick_specs.get("mpg_combined")
+    if mpg_city not in (None, "") and mpg_hwy not in (None, ""):
+        highlights.append(f"EPA: {mpg_city} city / {mpg_hwy} hwy")
+    elif mpg_combined not in (None, ""):
+        highlights.append(f"EPA combined: {mpg_combined}")
+    return _dedupe_strings(highlights)
+
+
 def _extract_carfax_facts_from_html(html_text: str) -> dict[str, Any]:
     badge_chunks: list[str] = []
     for match in re.finditer(r"<img\b[^>]*(?:carfax|valuebadge)[^>]*>", html_text, flags=re.IGNORECASE):
@@ -6484,6 +6624,11 @@ def _load_vehicle_assets(vin: str, *, refresh: bool = False) -> dict[str, Any]:
                 carfax_facts = _extract_carfax_facts_from_html(response.text)
                 if carfax_facts and not payload.get("carfax_facts"):
                     payload["carfax_facts"] = carfax_facts
+                quick_specs = _extract_quick_specs_from_html(response.text)
+                if quick_specs:
+                    merged_specs = dict(payload.get("quick_specs") if isinstance(payload.get("quick_specs"), dict) else {})
+                    merged_specs.update(quick_specs)
+                    payload["quick_specs"] = merged_specs
                 payload["detail_fetch_status"] = response.status_code
             else:
                 payload["detail_fetch_status"] = response.status_code
@@ -6938,6 +7083,8 @@ def _vehicle_asset_summary_payload(*, vehicle: dict[str, Any], assets: dict[str,
     clean_vin = str(vehicle.get("vin") or assets.get("vin") or "").strip().upper()
     vehicle_kind, buyer, default_features = _vehicle_kind_and_buyer(vehicle)
     highlights = _vehicle_marketing_highlights(vehicle)
+    quick_specs = assets.get("quick_specs") if isinstance(assets.get("quick_specs"), dict) else {}
+    quick_spec_highlights = _quick_spec_highlights(quick_specs)
     sticker_highlights = [
         item
         for item in [
@@ -6950,6 +7097,7 @@ def _vehicle_asset_summary_payload(*, vehicle: dict[str, Any], assets: dict[str,
         ]
         if item
     ]
+    sticker_highlights = _dedupe_strings([*quick_spec_highlights, *sticker_highlights])
     carfax_summary = _carfax_summary_from_assets(clean_vin, assets)
     buyer_profile = {
         "kind": vehicle_kind,
@@ -9299,6 +9447,23 @@ def _one_click_post_from_inventory(request: FacebookOneClickPostRequest) -> dict
         except Exception:
             pass
     carfax_assets = cached_assets if isinstance(cached_assets, dict) else {}
+    quick_specs = carfax_assets.get("quick_specs") if isinstance(carfax_assets.get("quick_specs"), dict) else {}
+    if isinstance(quick_specs, dict):
+        field_map = {
+            "model": "model",
+            "body_style": "marketplace_body_style",
+            "fuel_type": "marketplace_fuel_type",
+            "drivetrain": "drivetrain",
+            "engine": "engine",
+            "transmission": "transmission",
+            "exterior": "exterior",
+            "interior": "interior",
+            "stock_number": "stock_number",
+        }
+        for vehicle_key, spec_key in field_map.items():
+            spec_value = quick_specs.get(spec_key)
+            if spec_value not in (None, "", [], {}) and not vehicle_for_post.get(vehicle_key):
+                vehicle_for_post[vehicle_key] = spec_value
     carfax_facts = carfax_assets.get("carfax_facts") if isinstance(carfax_assets.get("carfax_facts"), dict) else {}
     if not _has_structured_carfax_facts(carfax_facts):
         try:
@@ -9385,7 +9550,11 @@ def _one_click_post_from_inventory(request: FacebookOneClickPostRequest) -> dict
         vin=clean_vin,
         title=str(vehicle_for_post.get("title") or clean_vin),
         price=vehicle_for_post.get("price") or "",
+        model=vehicle_for_post.get("model"),
         mileage=vehicle_for_post.get("mileage"),
+        body_style=vehicle_for_post.get("body_style"),
+        fuel_type=vehicle_for_post.get("fuel_type"),
+        condition=vehicle_for_post.get("condition") or "Good",
         drivetrain=vehicle_for_post.get("drivetrain"),
         engine=vehicle_for_post.get("engine"),
         transmission=vehicle_for_post.get("transmission"),

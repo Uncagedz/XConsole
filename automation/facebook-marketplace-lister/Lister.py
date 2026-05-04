@@ -1762,38 +1762,61 @@ class Lister:
 
     def _infer_body_style(self, title):
         lowered = str(title or "").lower()
+        if any(token in lowered for token in ["convertible", "roadster", "spyder", "cabriolet", "z4", "sl-class", "sl 55", "sl 63"]):
+            return "Convertible"
+        if any(token in lowered for token in ["coupe", "4 series", "m4", "mustang", "challenger", "camaro"]):
+            return "Coupe"
+        if any(token in lowered for token in ["wagon", "avant"]):
+            return "Wagon"
+        if any(token in lowered for token in ["hatchback", "liftback"]):
+            return "Hatchback"
         if any(token in lowered for token in ["pacifica", "voyager", "caravan", "minivan"]):
             return "Minivan"
         if any(
             token in lowered
             for token in [
                 "aviator",
+                "armada",
                 "bronco",
                 "compass",
+                "cx-9",
+                "defender",
                 "durango",
                 "edge",
                 "escape",
                 "explorer",
                 "expedition",
+                "gls",
+                "gle",
                 "grand cherokee",
                 "highlander",
                 "hornet",
                 "journey",
+                "nautilus",
                 "navigator",
+                "palisade",
+                "cayenne",
+                "macan",
+                "qx60",
                 "pilot",
                 "q5",
                 "q7",
                 "q8",
                 "sahara",
+                "suburban",
                 "sq5",
                 "sq7",
                 "sq8",
                 "suv",
+                "telluride",
                 "tahoe",
+                "titan",
                 "traverse",
                 "wagoneer",
                 "wrangler",
                 "x5",
+                "x6",
+                "x3",
                 "yukon",
             ]
         ):
@@ -1803,6 +1826,30 @@ class Lister:
         if any(token in lowered for token in ["1500", "2500", "3500", "truck", "pickup", "ram"]):
             return "Truck"
         return ""
+
+    def _normalized_body_style(self, value):
+        lowered = str(value or "").strip().lower()
+        if not lowered:
+            return ""
+        if any(token in lowered for token in ["convertible", "roadster", "cabriolet", "spyder", "soft top"]):
+            return "Convertible"
+        if "coupe" in lowered:
+            return "Coupe"
+        if any(token in lowered for token in ["hatchback", "liftback"]):
+            return "Hatchback"
+        if "wagon" in lowered:
+            return "Wagon"
+        if "minivan" in lowered:
+            return "Minivan"
+        if any(token in lowered for token in ["van", "cargo van", "passenger van"]) and "minivan" not in lowered:
+            return "Van"
+        if any(token in lowered for token in ["truck", "pickup", "supercrew", "crew cab", "super cab", "double cab", "quad cab", "king cab"]):
+            return "Truck"
+        if any(token in lowered for token in ["suv", "sport utility", "utility", "crossover"]):
+            return "SUV"
+        if "sedan" in lowered:
+            return "Sedan"
+        return str(value or "").strip()
 
     def _infer_fuel_type(self, item):
         blob = " ".join(
@@ -1819,6 +1866,20 @@ class Lister:
         if any(token in blob for token in ["hybrid", "plug-in", "plug in", "phev", "4xe"]):
             return "Hybrid"
         return "Gasoline"
+
+    def _normalized_fuel_type(self, value):
+        lowered = str(value or "").strip().lower()
+        if not lowered:
+            return ""
+        if any(token in lowered for token in ["electric", "bev", "ev"]):
+            return "Electric"
+        if any(token in lowered for token in ["hybrid", "plug-in", "plug in", "phev", "4xe"]):
+            return "Hybrid"
+        if any(token in lowered for token in ["diesel", "tdi", "duramax", "cummins", "power stroke", "ecodiesel"]):
+            return "Diesel"
+        if any(token in lowered for token in ["gasoline", "regular unleaded", "premium unleaded", "unleaded", "flex fuel"]):
+            return "Gasoline"
+        return str(value or "").strip()
 
     def _normalize_color(self, value):
         lowered = str(value or "").strip().lower()
@@ -2539,6 +2600,8 @@ class Lister:
         exterior_color = self._normalize_color(item.get("exterior"))
         interior_color = self._normalize_color(item.get("interior"))
         transmission_value = self._normalized_transmission(item.get("transmission"))
+        body_style_value = self._normalized_body_style(item.get("body_style") or self._infer_body_style(item.get("title")))
+        fuel_type_value = self._normalized_fuel_type(item.get("fuel_type") or self._infer_fuel_type(item))
         self._set_vehicle_type(item.get("vehicle_type") or "Car/Truck")
         time.sleep(self.field_wait_seconds)
 
@@ -2585,9 +2648,9 @@ class Lister:
         self._set_field_value(["mileage", "odometer"], self._normalized_mileage(item.get("mileage")))
         self._set_field_value(
             ["body style"],
-            item.get("body_style") or self._infer_body_style(item.get("title")),
+            body_style_value,
             required=True,
-            option_values=[item.get("body_style") or self._infer_body_style(item.get("title"))],
+            option_values=[body_style_value],
         )
         self._set_field_value(
             ["vehicle condition", "condition"],
@@ -2596,9 +2659,9 @@ class Lister:
         )
         self._set_verified_dropdown_value(
             ["fuel type"],
-            item.get("fuel_type") or self._infer_fuel_type(item),
+            fuel_type_value,
             required=True,
-            option_values=[item.get("fuel_type") or self._infer_fuel_type(item)],
+            option_values=[fuel_type_value],
         )
         self._set_field_value(
             ["transmission"],
@@ -2623,9 +2686,9 @@ class Lister:
             {"terms": ["year"], "expected": title_parts.get("year"), "include_textboxes": False},
             {"terms": ["make"], "expected": title_parts.get("make"), "include_textboxes": False},
             {"terms": ["model"], "expected": model_candidates[0] if model_candidates else title_parts.get("model"), "include_textboxes": False},
-            {"terms": ["body style"], "expected": item.get("body_style") or self._infer_body_style(item.get("title")), "include_textboxes": False},
+            {"terms": ["body style"], "expected": body_style_value, "include_textboxes": False},
             {"terms": ["vehicle condition", "condition"], "expected": item.get("condition") or "Good", "include_textboxes": False},
-            {"terms": ["fuel type"], "expected": item.get("fuel_type") or self._infer_fuel_type(item), "include_textboxes": False},
+            {"terms": ["fuel type"], "expected": fuel_type_value, "include_textboxes": False},
             {"terms": ["transmission"], "expected": transmission_value, "include_textboxes": False},
             {"terms": ["exterior color", "exterior"], "expected": exterior_color, "include_textboxes": False},
             {"terms": ["interior color", "interior"], "expected": interior_color, "include_textboxes": False},
