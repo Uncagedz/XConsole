@@ -8370,85 +8370,146 @@ def _publish_live(payload: FacebookPostRequest) -> tuple[bool, str, dict[str, An
     publish_env["FACEBOOK_PUBLISH_STATUS_FILE"] = str(status_file)
     publish_env["FACEBOOK_PUBLISH_VIN"] = str(payload.vin or "")
     publish_env["FACEBOOK_PUBLISH_TITLE"] = str(payload.title or "")
-    try:
-        completed = subprocess.run(
-            cmd,
-            cwd=str(ROOT_DIR),
-            env=publish_env,
-            capture_output=True,
-            text=True,
-            check=False,
-    timeout=int(os.getenv("FACEBOOK_PUBLISH_TIMEOUT_SECONDS", "180") or "180"),
-        )
-    except subprocess.TimeoutExpired as exc:
-        output = (exc.stdout or "").strip() if isinstance(exc.stdout, str) else ""
-        error_text = (exc.stderr or "").strip() if isinstance(exc.stderr, str) else ""
-        detail = _friendly_facebook_publish_detail(
-            output=output,
-            error_text=error_text,
-            fallback="Facebook posting timed out while waiting for login or Marketplace confirmation.",
-        )
-        if not detail or "timed out" not in detail.lower():
-            detail = "Facebook posting timed out while waiting for login or Marketplace confirmation. Xconsole marked the vehicle Needs Review and did not count it Live."
-        _write_facebook_live_status(
-            status_file,
-            {"ok": False, "vin": payload.vin, "title": payload.title, "stage": detail, "type": "failure"},
-        )
-        return False, detail, {"marketplace_status": "needs_review", "error": detail}
-    output = (completed.stdout or "").strip()
-    error_text = (completed.stderr or "").strip()
-    if completed.returncode != 0:
-        detail = _friendly_facebook_publish_detail(
-            output=output,
-            error_text=error_text,
-            fallback=f"Publish failed with code {completed.returncode}",
-        )
-        _write_facebook_live_status(
-            status_file,
-            {"ok": False, "vin": payload.vin, "title": payload.title, "stage": detail, "type": "failure"},
-        )
-        return False, detail, {"marketplace_status": "needs_review", "error": detail}
-    parsed_result = _last_json_object_from_output(output)
-    if not isinstance(parsed_result, dict):
-        detail = _friendly_facebook_publish_detail(
-            output=output,
-            error_text=error_text,
-            fallback="Facebook helper returned an empty response payload.",
-        )
-        _write_facebook_live_status(
-            status_file,
-            {"ok": False, "vin": payload.vin, "title": payload.title, "stage": detail, "type": "failure"},
-        )
-        return False, detail, {"marketplace_status": "needs_review", "error": detail}
+    max_attempts = max(1, min(int(os.getenv("FACEBOOK_PUBLISH_MAX_ATTEMPTS", "2") or "2"), 3))
+    state: dict[str, Any] = {"marketplace_status": "needs_review"}
+    output = ""
+    for attempt in range(1, max_attempts + 1):
+        try:
+            completed = subprocess.run(
+                cmd,
+                cwd=str(ROOT_DIR),
+                env=publish_env,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=int(os.getenv("FACEBOOK_PUBLISH_TIMEOUT_SECONDS", "180") or "180"),
+            )
+        except subprocess.TimeoutExpired as exc:
+            output = (exc.stdout or "").strip() if isinstance(exc.stdout, str) else ""
+            error_text = (exc.stderr or "").strip() if isinstance(exc.stderr, str) else ""
+            detail = _friendly_facebook_publish_detail(
+                output=output,
+                error_text=error_text,
+                fallback="Facebook posting timed out while waiting for login or Marketplace confirmation.",
+            )
+            if not detail or "timed out" not in detail.lower():
+                detail = "Facebook posting timed out while waiting for login or Marketplace confirmation. Xconsole marked the vehicle Needs Review and did not count it Live."
+            _write_facebook_live_status(
+                status_file,
+                {"ok": False, "vin": payload.vin, "title": payload.title, "stage": detail, "type": "failure"},
+            )
+            return False, detail, {"marketplace_status": "needs_review", "error": detail}
 
-    state = _marketplace_state_from_publish_result(parsed_result)
+        output = (completed.stdout or "").strip()
+        error_text = (completed.stderr or "").strip()
+        parsed_result = _last_json_object_from_output(output) if completed.returncode == 0 else None
+        state = _marketplace_state_from_publish_result(parsed_result) if isinstance(parsed_result, dict) else {"marketplace_status": "needs_review"}
 
-    if parsed_result.get("ok") is False and state.get("marketplace_status") not in {"processing"}:
-        detail = _friendly_facebook_publish_detail(output=output or json.dumps(parsed_result))
-        _write_facebook_live_status(
-            status_file,
-            {"ok": False, "vin": payload.vin, "title": payload.title, "stage": detail, "type": "failure"},
-        )
-        return False, detail, state
+        if completed.returncode != 0:
+            detail = _friendly_facebook_publish_detail(
+                output=output,
+                error_text=error_text,
+                fallback=f"Publish failed with code {completed.returncode}",
+            )
+            if attempt < max_attempts and _facebook_publish_should_retry(detail, state):
+                _write_facebook_live_status(
+                    status_file,
+                    {
+                        "ok": True,
+                        "vin": payload.vin,
+                        "title": payload.title,
+                        "stage": f"Chrome hit a transient Facebook browser crash. Retrying publish ({attempt + 1}/{max_attempts})...",
+                        "type": "main",
+                    },
+                )
+                time.sleep(1.0)
+                continue
+            _write_facebook_live_status(
+                status_file,
+                {"ok": False, "vin": payload.vin, "title": payload.title, "stage": detail, "type": "failure"},
+            )
+            return False, detail, {"marketplace_status": "needs_review", "error": detail}
 
-    if state.get("marketplace_status") in {"failed", "needs_review", "draft"}:
-        detail = _friendly_facebook_publish_detail(output=output or json.dumps(parsed_result))
-        _write_facebook_live_status(
-            status_file,
-            {"ok": False, "vin": payload.vin, "title": payload.title, "stage": detail, "type": "failure"},
-        )
-        return False, detail, state
+        if not isinstance(parsed_result, dict):
+            detail = _friendly_facebook_publish_detail(
+                output=output,
+                error_text=error_text,
+                fallback="Facebook helper returned an empty response payload.",
+            )
+            if attempt < max_attempts and _facebook_publish_should_retry(detail, state):
+                _write_facebook_live_status(
+                    status_file,
+                    {
+                        "ok": True,
+                        "vin": payload.vin,
+                        "title": payload.title,
+                        "stage": f"Facebook helper lost the browser session. Retrying publish ({attempt + 1}/{max_attempts})...",
+                        "type": "main",
+                    },
+                )
+                time.sleep(1.0)
+                continue
+            _write_facebook_live_status(
+                status_file,
+                {"ok": False, "vin": payload.vin, "title": payload.title, "stage": detail, "type": "failure"},
+            )
+            return False, detail, {"marketplace_status": "needs_review", "error": detail}
 
-    if state.get("marketplace_status") != "live":
-        detail = (
-            "Facebook submitted the listing, but Marketplace has not exposed a visible listing URL yet. "
-            "Xconsole marked it Processing and will keep it out of Live counts until verification succeeds."
-        )
-        _write_facebook_live_status(
-            status_file,
-            {"ok": False, "vin": payload.vin, "title": payload.title, "stage": detail, "type": "processing"},
-        )
-        return False, detail, state
+        state = _marketplace_state_from_publish_result(parsed_result)
+
+        if parsed_result.get("ok") is False and state.get("marketplace_status") not in {"processing"}:
+            detail = _friendly_facebook_publish_detail(output=output or json.dumps(parsed_result))
+            if attempt < max_attempts and _facebook_publish_should_retry(detail, state):
+                _write_facebook_live_status(
+                    status_file,
+                    {
+                        "ok": True,
+                        "vin": payload.vin,
+                        "title": payload.title,
+                        "stage": f"Facebook browser crashed during submit. Retrying publish ({attempt + 1}/{max_attempts})...",
+                        "type": "main",
+                    },
+                )
+                time.sleep(1.0)
+                continue
+            _write_facebook_live_status(
+                status_file,
+                {"ok": False, "vin": payload.vin, "title": payload.title, "stage": detail, "type": "failure"},
+            )
+            return False, detail, state
+
+        if state.get("marketplace_status") in {"failed", "needs_review", "draft"}:
+            detail = _friendly_facebook_publish_detail(output=output or json.dumps(parsed_result))
+            if attempt < max_attempts and _facebook_publish_should_retry(detail, state):
+                _write_facebook_live_status(
+                    status_file,
+                    {
+                        "ok": True,
+                        "vin": payload.vin,
+                        "title": payload.title,
+                        "stage": f"Facebook browser crashed while finalizing the post. Retrying publish ({attempt + 1}/{max_attempts})...",
+                        "type": "main",
+                    },
+                )
+                time.sleep(1.0)
+                continue
+            _write_facebook_live_status(
+                status_file,
+                {"ok": False, "vin": payload.vin, "title": payload.title, "stage": detail, "type": "failure"},
+            )
+            return False, detail, state
+
+        if state.get("marketplace_status") != "live":
+            detail = (
+                "Facebook submitted the listing, but Marketplace has not exposed a visible listing URL yet. "
+                "Xconsole marked it Processing and will keep it out of Live counts until verification succeeds."
+            )
+            _write_facebook_live_status(
+                status_file,
+                {"ok": False, "vin": payload.vin, "title": payload.title, "stage": detail, "type": "processing"},
+            )
+            return False, detail, state
+        break
 
     status_file.write_text(
         json.dumps(
@@ -8553,6 +8614,24 @@ def _friendly_facebook_publish_detail(*, output: str = "", error_text: str = "",
 
     compact = re.sub(r"\s+", " ", message or clean or fallback).strip()
     return compact[:360] + ("..." if len(compact) > 360 else "")
+
+
+def _facebook_publish_should_retry(detail: str, state: dict[str, Any] | None = None) -> bool:
+    text = " ".join(
+        [
+            str(detail or ""),
+            json.dumps(state or {}, ensure_ascii=False) if isinstance(state, dict) else "",
+        ]
+    ).lower()
+    transient_markers = [
+        "tab crashed",
+        "session not created",
+        "chrome instance exited",
+        "target frame detached",
+        "disconnected: not connected to devtools",
+        "invalid session id",
+    ]
+    return any(marker in text for marker in transient_markers)
 
 
 def _write_facebook_live_status(status_file: Path, payload: dict[str, Any]) -> None:
