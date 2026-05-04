@@ -9465,14 +9465,6 @@ def _one_click_post_from_inventory(request: FacebookOneClickPostRequest) -> dict
             if spec_value not in (None, "", [], {}) and not vehicle_for_post.get(vehicle_key):
                 vehicle_for_post[vehicle_key] = spec_value
     carfax_facts = carfax_assets.get("carfax_facts") if isinstance(carfax_assets.get("carfax_facts"), dict) else {}
-    if not _has_structured_carfax_facts(carfax_facts):
-        try:
-            refreshed_assets = _load_vehicle_assets(clean_vin, refresh=True)
-            if isinstance(refreshed_assets, dict):
-                carfax_assets = refreshed_assets
-        except Exception:
-            pass
-    carfax_facts = carfax_assets.get("carfax_facts") if isinstance(carfax_assets.get("carfax_facts"), dict) else {}
     carfax_summary = carfax_assets.get("carfax_summary") if isinstance(carfax_assets.get("carfax_summary"), dict) else {}
     vehicle_for_post.update(
         {
@@ -9480,19 +9472,6 @@ def _one_click_post_from_inventory(request: FacebookOneClickPostRequest) -> dict
             "carfax_summary": carfax_summary,
         }
     )
-    if request.mode == "live" and not _has_structured_carfax_facts(carfax_facts):
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "message": "CARFAX details are not complete enough to build a proper Facebook description yet.",
-                "vin": clean_vin,
-                "guidance": [
-                    "Refresh CARFAX for this vehicle first",
-                    "Wait for owners, accidents, service history, and value details to populate",
-                    "Then post once the in-app CARFAX summary is complete",
-                ],
-            },
-        )
 
     selected_urls, selected_indexes, all_urls = _select_vehicle_photo_urls(
         vehicle=vehicle_for_post,
@@ -11596,24 +11575,25 @@ def facebook_live_preflight(request: FacebookPreflightRequest) -> dict[str, Any]
 
 
 @router.get("/facebook/live-status")
-async def facebook_live_status() -> dict[str, Any]:
+async def facebook_live_status() -> JSONResponse:
     status_file = RUNTIME_DIR / "facebook_live_status.json"
+    headers = {"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"}
     if not status_file.exists():
-        return {
+        return JSONResponse(content={
             "ok": True,
             "stage": "No live Facebook publish running.",
             "updated_at": None,
-        }
+        }, headers=headers)
     payload = _safe_read_json(status_file, {})
     if not isinstance(payload, dict):
-        return {
+        return JSONResponse(content={
             "ok": False,
             "stage": "Facebook live status file could not be read.",
             "updated_at": None,
-        }
+        }, headers=headers)
     if payload.get("stage"):
         payload["stage"] = _friendly_facebook_publish_detail(fallback=str(payload.get("stage"))) if payload.get("type") == "failure" else re.sub(r"\s+", " ", _strip_facebook_automation_noise(str(payload.get("stage")))).strip()[:420]
-    return {"ok": True, **payload}
+    return JSONResponse(content={"ok": True, **payload}, headers=headers)
 
 
 @router.post("/facebook/sync-marketplace")

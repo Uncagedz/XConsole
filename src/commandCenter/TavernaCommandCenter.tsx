@@ -762,7 +762,13 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   if (authHeader && !headers.has('Authorization')) {
     headers.set('Authorization', authHeader);
   }
-  const response = await fetch(target, { credentials: 'same-origin', ...init, headers });
+  const method = String(init?.method || 'GET').toUpperCase();
+  const response = await fetch(target, {
+    credentials: 'same-origin',
+    cache: method === 'GET' ? 'no-store' : init?.cache,
+    ...init,
+    headers,
+  });
   const contentType = String(response.headers.get('content-type') || '').toLowerCase();
   const rawText = (await response.text().catch(() => '')).trim();
   const isJsonLike = contentType.includes('application/json') || contentType.includes('application/problem+json') || rawText.startsWith('{') || rawText.startsWith('[');
@@ -1270,7 +1276,7 @@ export function TavernaCommandCenter() {
 
   async function loadFacebookLiveStatus() {
     try {
-      const payload = await requestJson<FacebookLiveStatus>('/api/facebook/live-status');
+      const payload = await requestJson<FacebookLiveStatus>(`/api/facebook/live-status?_ts=${Date.now()}`);
       if (isIdleFacebookStage(payload.stage) && (postBusy || batchBusy)) {
         return;
       }
@@ -1366,12 +1372,22 @@ export function TavernaCommandCenter() {
       setStatusText('Select a vehicle first.');
       return;
     }
+    const targetVehicle = inventory.find((item) => vin(item.vin) === clean);
     setPendingPostCount((current) => current + 1);
     setPendingPostVins((current) => ({ ...current, [clean]: true }));
     try {
       await postVehicle(modeOverride, clean, { refreshAfter: true });
     } catch (error: unknown) {
-      setStatusText(`Facebook post failed: ${readableFacebookStatus(error)}`);
+      const failureDetail = readableFacebookStatus(error);
+      setLiveStatus({
+        ok: false,
+        vin: clean,
+        title: targetVehicle?.title || clean,
+        stage: failureDetail,
+        type: 'failure',
+        updated_at: new Date().toISOString(),
+      });
+      setStatusText(`Facebook post failed: ${failureDetail}`);
     } finally {
       setPendingPostCount((current) => Math.max(0, current - 1));
       setPendingPostVins((current) => {
