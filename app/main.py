@@ -12,7 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .api import router as api_router
-from .security import authenticate_basic_header, current_user_from_session_cookie, issue_session_cookie
+from .security import authenticate_basic_header, current_user_from_auth_header, current_user_from_session_cookie, issue_session_cookie
 
 APP_DIR = Path(__file__).resolve().parent
 ROOT_DIR = APP_DIR.parent
@@ -129,6 +129,24 @@ def _with_no_store_headers(path: str, response: Response) -> Response:
     return response
 
 
+def _apply_session_cookie(request: Request, response: Response) -> Response:
+    user = current_user_from_session_cookie(request.cookies.get("xconsole_session"))
+    if not user:
+        user = current_user_from_auth_header(request.headers.get("authorization", ""))
+    if not user:
+        return response
+    secure_cookie = request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").lower() == "https"
+    response.set_cookie(
+        "xconsole_session",
+        issue_session_cookie(str(user.get("username") or "")),
+        httponly=True,
+        samesite="lax",
+        secure=secure_cookie,
+        path="/",
+    )
+    return response
+
+
 @app.middleware("http")
 async def optional_basic_auth(request: Request, call_next):
     path = request.url.path
@@ -183,17 +201,19 @@ async def root() -> RedirectResponse:
 
 
 @app.get("/admin")
-async def admin_index() -> HTMLResponse:
+async def admin_index(request: Request) -> HTMLResponse:
     if ADMIN_INDEX_HTML is None:
         raise HTTPException(status_code=404, detail="Admin bundle missing. Run start-local-stack.ps1.")
-    return HTMLResponse(ADMIN_INDEX_HTML, headers=NO_STORE_HEADERS)
+    response = HTMLResponse(ADMIN_INDEX_HTML, headers=NO_STORE_HEADERS)
+    return _apply_session_cookie(request, response)
 
 
 @app.get("/admin/{path:path}")
-async def admin_spa(path: str) -> HTMLResponse:
+async def admin_spa(path: str, request: Request) -> HTMLResponse:
     if ADMIN_INDEX_HTML is None:
         raise HTTPException(status_code=404, detail="Admin bundle missing. Run start-local-stack.ps1.")
-    return HTMLResponse(ADMIN_INDEX_HTML, headers=NO_STORE_HEADERS)
+    response = HTMLResponse(ADMIN_INDEX_HTML, headers=NO_STORE_HEADERS)
+    return _apply_session_cookie(request, response)
 
 
 @app.get("/sales-assistant")
