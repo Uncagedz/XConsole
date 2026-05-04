@@ -796,9 +796,6 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   if (parseError) {
     throw new Error(`Response parsing failed for ${target}: ${parseError}`);
   }
-  if (payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload as Record<string, unknown>).length === 0) {
-    throw new Error(`Request for ${target} returned an empty JSON object.`);
-  }
   return payload as T;
 }
 
@@ -957,7 +954,9 @@ export function TavernaCommandCenter() {
   const [refreshBusy, setRefreshBusy] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
   const [autoFullSyncAttempted, setAutoFullSyncAttempted] = useState(false);
-  const [postBusy, setPostBusy] = useState(false);
+  const [pendingPostCount, setPendingPostCount] = useState(0);
+  const postBusy = pendingPostCount > 0;
+  const [pendingPostVins, setPendingPostVins] = useState<Record<string, boolean>>({});
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchSelectedVins, setBatchSelectedVins] = useState<Record<string, boolean>>({});
   const [batchQueue, setBatchQueue] = useState<string[]>([]);
@@ -970,6 +969,7 @@ export function TavernaCommandCenter() {
     () => inventory.find((item) => vin(item.vin) === vin(selectedVin)),
     [inventory, selectedVin],
   );
+  const selectedPostBusy = Boolean(selected && pendingPostVins[vin(selected.vin)]);
   const selectedAssets = vin(selectedVin) ? assetsByVin[vin(selectedVin)] : undefined;
   const selectedAssetData = useMemo(() => {
     const cleanVin = vin(selected?.vin || selectedAssets?.vin);
@@ -1338,19 +1338,6 @@ export function TavernaCommandCenter() {
       }),
     });
     setPostResult(payload);
-    if (!payload.post_result) {
-      const currentLiveStatus = await requestJsonSafe<FacebookLiveStatus>('/api/facebook/live-status');
-      if (currentLiveStatus.ok && currentLiveStatus.value?.stage && !isIdleFacebookStage(currentLiveStatus.value.stage)) {
-        setLiveStatus(currentLiveStatus.value);
-        setStatusText(`${batchPrefix}${readableFacebookStatus(currentLiveStatus.value.stage)}`);
-      } else {
-        setStatusText(`${batchPrefix}Facebook returned no post result for ${clean}.`);
-      }
-      if (options.refreshAfter !== false) {
-        await refresh();
-      }
-      return payload;
-    }
     const postState = payload.post_result?.marketplace_status || (payload.post_result?.live_success ? 'live' : 'needs_review');
     setLiveStatus({
       ok: Boolean(payload.post_result?.live_success),
@@ -1374,13 +1361,24 @@ export function TavernaCommandCenter() {
   }
 
   async function post(modeOverride: 'live' | 'draft' = 'live', targetVin?: string) {
-    setPostBusy(true);
+    const clean = vin(targetVin || selectedVin);
+    if (!clean) {
+      setStatusText('Select a vehicle first.');
+      return;
+    }
+    setPendingPostCount((current) => current + 1);
+    setPendingPostVins((current) => ({ ...current, [clean]: true }));
     try {
-      await postVehicle(modeOverride, targetVin || selectedVin, { refreshAfter: true });
+      await postVehicle(modeOverride, clean, { refreshAfter: true });
     } catch (error: unknown) {
       setStatusText(`Facebook post failed: ${readableFacebookStatus(error)}`);
     } finally {
-      setPostBusy(false);
+      setPendingPostCount((current) => Math.max(0, current - 1));
+      setPendingPostVins((current) => {
+        const next = { ...current };
+        delete next[clean];
+        return next;
+      });
     }
   }
 
@@ -1412,7 +1410,6 @@ export function TavernaCommandCenter() {
       return;
     }
     setBatchBusy(true);
-    setPostBusy(true);
     setBatchQueue(queue);
     setBatchProgress({ current: 0, total: queue.length, success: 0, failed: 0 });
     try {
@@ -1444,7 +1441,6 @@ export function TavernaCommandCenter() {
       setStatusText(`Facebook batch failed: ${readableFacebookStatus(error)}`);
     } finally {
       setBatchBusy(false);
-      setPostBusy(false);
       setBatchQueue([]);
     }
   }
@@ -3211,9 +3207,9 @@ export function TavernaCommandCenter() {
                           event.stopPropagation();
                           void post('live', clean);
                         }}
-                        disabled={postBusy}
+                        disabled={Boolean(pendingPostVins[clean]) || batchBusy}
                       >
-                        {postBusy && active ? 'Posting' : 'Post'}
+                        {pendingPostVins[clean] && active ? 'Posting' : 'Post'}
                       </button>
                     ) : null}
                   </div>
@@ -3284,7 +3280,7 @@ export function TavernaCommandCenter() {
 
           {tab === 'marketing' ? (
             <div className="xos-scroll">
-              <article className="xos-ai-block"><h3>AI Marketing Generator</h3><textarea value={enhancedCaption} onChange={(event) => setCaption(event.target.value)} /><button type="button" onClick={() => void post('live')} disabled={postBusy || !canPostFacebook}>{postBusy ? 'Posting' : 'Post This Car'}</button></article>
+              <article className="xos-ai-block"><h3>AI Marketing Generator</h3><textarea value={enhancedCaption} onChange={(event) => setCaption(event.target.value)} /><button type="button" onClick={() => void post('live')} disabled={selectedPostBusy || batchBusy || !canPostFacebook}>{selectedPostBusy ? 'Posting' : 'Post This Car'}</button></article>
               <article className="xos-ai-block"><h3>Photo Rules</h3><p>{selectedPhotos.length > 10 ? 'Image 1 and Image 3 are skipped by default; choose real exterior/interior angles first.' : 'Fewer than 10 photos: all photos are selected.'}</p></article>
             </div>
           ) : null}
@@ -4227,8 +4223,8 @@ export function TavernaCommandCenter() {
             <div className="tv2-head-rail">
               <div className="tv2-head-actions">
                 {canPostFacebook ? (
-                  <button className="tv2-btn tv2-btn-primary" type="button" onClick={() => void post('live')} disabled={!selected || postBusy}>
-                    {postBusy ? 'Posting...' : 'Post to Facebook'}
+                  <button className="tv2-btn tv2-btn-primary" type="button" onClick={() => void post('live')} disabled={!selected || selectedPostBusy || batchBusy}>
+                    {selectedPostBusy ? 'Posting...' : 'Post to Facebook'}
                   </button>
                 ) : null}
                 {canViewAssets ? (
@@ -4374,8 +4370,8 @@ export function TavernaCommandCenter() {
                       </div>
                       <p>{postResult?.post_result?.live_detail || selected?.post_detail || (selectedPosted ? 'Marketplace listing has been verified live.' : 'Ready means account, browser, images, and caption are staged.')}</p>
                       {canPostFacebook ? (
-                        <button className="tv2-btn tv2-btn-primary" type="button" onClick={() => void post('live')} disabled={!selected || postBusy}>
-                          {postBusy ? 'Posting...' : selectedPosted ? 'Post Again' : 'Post Live'}
+                        <button className="tv2-btn tv2-btn-primary" type="button" onClick={() => void post('live')} disabled={!selected || selectedPostBusy || batchBusy}>
+                          {selectedPostBusy ? 'Posting...' : selectedPosted ? 'Post Again' : 'Post Live'}
                         </button>
                       ) : null}
                     </article>
@@ -4696,8 +4692,8 @@ export function TavernaCommandCenter() {
                       <input value={promoDown} onChange={(event) => setPromoDown(event.target.value)} />
                     </label>
                     <div className="tv2-preview"><pre>{enhancedCaption || 'No caption generated.'}</pre></div>
-                    <button className="tv2-btn tv2-btn-primary tv2-btn-post" type="button" onClick={() => void post('live')} disabled={postBusy || !canPostFacebook}>
-                      {postBusy ? 'Posting...' : 'Post To Facebook'}
+                    <button className="tv2-btn tv2-btn-primary tv2-btn-post" type="button" onClick={() => void post('live')} disabled={selectedPostBusy || batchBusy || !canPostFacebook}>
+                      {selectedPostBusy ? 'Posting...' : 'Post To Facebook'}
                     </button>
                     {postResult ? (
                       <div className="tv2-result">
