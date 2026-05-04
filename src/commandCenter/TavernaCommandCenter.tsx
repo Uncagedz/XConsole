@@ -445,6 +445,12 @@ function isIdleFacebookStage(value: unknown): boolean {
   return String(value || '').trim() === 'No live Facebook publish running.';
 }
 
+function isTerminalFacebookLiveStatus(status: FacebookLiveStatus | null | undefined): boolean {
+  const type = String(status?.type || '').trim().toLowerCase();
+  if (!type) return false;
+  return ['success', 'failure', 'live', 'needs_review', 'processing', 'failed'].includes(type);
+}
+
 function num(value: string | number | undefined | null): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (value === undefined || value === null) return null;
@@ -968,6 +974,7 @@ export function TavernaCommandCenter() {
   const [batchQueue, setBatchQueue] = useState<string[]>([]);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, success: 0, failed: 0 });
   const [liveStatus, setLiveStatus] = useState<FacebookLiveStatus | null>(null);
+  const liveStatusRefreshKey = useRef<string>('');
   const [analyzeBusy, setAnalyzeBusy] = useState(false);
   const [structureBusy, setStructureBusy] = useState(false);
 
@@ -975,6 +982,7 @@ export function TavernaCommandCenter() {
     () => inventory.find((item) => vin(item.vin) === vin(selectedVin)),
     [inventory, selectedVin],
   );
+  const liveStatusActive = Boolean(liveStatus && !isTerminalFacebookLiveStatus(liveStatus) && !isIdleFacebookStage(liveStatus.stage));
   const selectedPostBusy = Boolean(selected && pendingPostVins[vin(selected.vin)]);
   const selectedAssets = vin(selectedVin) ? assetsByVin[vin(selectedVin)] : undefined;
   const selectedAssetData = useMemo(() => {
@@ -1287,6 +1295,13 @@ export function TavernaCommandCenter() {
         const counts = payload.batch_total ? ` | posted ${payload.posted || 0} | failed ${payload.failed || 0}` : '';
         setStatusText(`${prefix}${batch}: ${readableFacebookStatus(payload.stage)}${counts}`);
       }
+      if (isTerminalFacebookLiveStatus(payload) && payload.updated_at) {
+        const refreshKey = `${payload.vin || 'global'}:${payload.type || ''}:${payload.updated_at}`;
+        if (liveStatusRefreshKey.current !== refreshKey) {
+          liveStatusRefreshKey.current = refreshKey;
+          void refresh().catch(() => undefined);
+        }
+      }
     } catch {
       // Status polling should never interrupt the posting flow.
     }
@@ -1345,22 +1360,23 @@ export function TavernaCommandCenter() {
     });
     setPostResult(payload);
     const postState = payload.post_result?.marketplace_status || (payload.post_result?.live_success ? 'live' : 'needs_review');
+    const postStage = payload.post_result?.live_success
+      ? 'Marketplace listing confirmed.'
+      : payload.post_result?.live_detail || `${titleCaseStatus(postState)} for ${clean}.`;
     setLiveStatus({
       ok: Boolean(payload.post_result?.live_success),
       vin: clean,
       title: targetVehicle?.title || clean,
-      stage: payload.post_result?.live_success
-        ? 'Marketplace listing confirmed.'
-        : payload.post_result?.live_detail || `${titleCaseStatus(postState)} for ${clean}.`,
+      stage: postStage,
       type: payload.post_result?.live_success ? 'success' : postState,
       updated_at: new Date().toISOString(),
     });
     setStatusText(
       payload.post_result?.live_success
         ? `${batchPrefix}Posted live ${clean}`
-        : `${batchPrefix}${titleCaseStatus(postState)} for ${clean}: ${readableFacebookStatus(payload.post_result?.live_detail || 'Marketplace listing was not confirmed live.')}`,
+        : `${batchPrefix}${titleCaseStatus(postState)} for ${clean}: ${readableFacebookStatus(postStage)}`,
     );
-    if (options.refreshAfter !== false) {
+    if (options.refreshAfter !== false && postState !== 'queued') {
       void refresh().catch(() => undefined);
     }
     return payload;
@@ -2350,13 +2366,13 @@ export function TavernaCommandCenter() {
   }, []);
 
   useEffect(() => {
-    if (!postBusy && !batchBusy) return;
+    if (!postBusy && !batchBusy && !liveStatusActive) return;
     void loadFacebookLiveStatus();
     const id = window.setInterval(() => {
       void loadFacebookLiveStatus();
     }, 2500);
     return () => window.clearInterval(id);
-  }, [postBusy, batchBusy]);
+  }, [postBusy, batchBusy, liveStatusActive]);
 
   useEffect(() => {
     void requestJson<{ items?: Array<{ code: string; name: string }> }>('/api/bank-brain/lenders')

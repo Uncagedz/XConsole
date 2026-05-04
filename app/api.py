@@ -8565,6 +8565,61 @@ def _write_facebook_live_status(status_file: Path, payload: dict[str, Any]) -> N
     status_file.write_text(json.dumps(clean_payload, indent=2), encoding="utf-8")
 
 
+def _queue_live_inventory_request(request: FacebookOneClickPostRequest, *, title: str | None = None) -> dict[str, Any]:
+    worker_script = ROOT_DIR / "tools" / "facebook_post_inventory_worker.py"
+    if not worker_script.exists():
+        raise HTTPException(
+            status_code=500,
+            detail={"message": "Missing tools/facebook_post_inventory_worker.py"},
+        )
+
+    status_file = RUNTIME_DIR / "facebook_live_status.json"
+    jobs_dir = RUNTIME_DIR / "facebook_live_jobs"
+    jobs_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    clean_vin = str(request.vin or "").strip().upper()
+    listing_title = str(title or clean_vin).strip() or clean_vin
+    request_file = jobs_dir / f"{clean_vin}_{stamp}.json"
+    request_file.write_text(json.dumps(request.model_dump(), indent=2), encoding="utf-8")
+    _write_facebook_live_status(
+        status_file,
+        {
+            "ok": True,
+            "vin": clean_vin,
+            "title": listing_title,
+            "stage": f"Queued Facebook live publish for {listing_title}. Waiting for Marketplace automation to begin...",
+            "type": "queued",
+        },
+    )
+
+    python_bin = ROOT_DIR / ".venv" / "Scripts" / "python.exe"
+    cmd = [
+        str(python_bin if python_bin.exists() else sys.executable),
+        str(worker_script),
+    ]
+    env = os.environ.copy()
+    env["FACEBOOK_PUBLISH_STATUS_FILE"] = str(status_file)
+    env["FACEBOOK_PUBLISH_VIN"] = clean_vin
+    env["FACEBOOK_PUBLISH_TITLE"] = listing_title
+    subprocess.Popen(
+        cmd,
+        cwd=str(ROOT_DIR),
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        close_fds=True,
+    )
+    return {
+        "ok": True,
+        "mode": "live",
+        "live_success": False,
+        "marketplace_status": "queued",
+        "live_detail": "Facebook live publish queued. Xconsole is running Marketplace automation in the background.",
+        "listing_url": None,
+    }
+
+
 def _publish_live_batch(payloads: list[FacebookPostRequest], account_id: str) -> tuple[bool, str, dict[str, Any]]:
     helper_script = ROOT_DIR / "tools" / "facebook_publish_batch.py"
     if not helper_script.exists():
@@ -9419,11 +9474,18 @@ def _import_image_urls_for_vin(
     }
 
 
-def _one_click_post_from_inventory(request: FacebookOneClickPostRequest) -> dict[str, Any]:
+def _run_one_click_post_from_inventory(request: FacebookOneClickPostRequest, *, queue_live: bool = True) -> dict[str, Any]:
     clean_vin = str(request.vin or "").strip().upper()
     vehicle = _find_vehicle_by_vin(clean_vin)
     if not vehicle:
         raise HTTPException(status_code=404, detail={"message": f"Vehicle not found for VIN {clean_vin}"})
+    if request.mode == "live" and queue_live:
+        return {
+            "ok": True,
+            "vin": clean_vin,
+            "post_result": _queue_live_inventory_request(request, title=str(vehicle.get("title") or clean_vin)),
+            "queued": True,
+        }
 
     vehicle_for_post = dict(vehicle)
     vehicle_for_post["vin"] = clean_vin
@@ -9585,6 +9647,10 @@ def _one_click_post_from_inventory(request: FacebookOneClickPostRequest) -> dict
         "prepared_post_request": post_request.model_dump(),
         "post_result": result,
     }
+
+
+def _one_click_post_from_inventory(request: FacebookOneClickPostRequest) -> dict[str, Any]:
+    return _run_one_click_post_from_inventory(request, queue_live=True)
 
 
 def _batch_post_from_inventory(request: FacebookBatchPostRequest) -> dict[str, Any]:
