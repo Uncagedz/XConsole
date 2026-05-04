@@ -3176,7 +3176,7 @@ export function TavernaCommandCenter() {
           <div className="xos-batch">
             <span>{batchSelectedCount ? `${batchSelectedCount} selected` : 'Batch ready'}</span>
             <button type="button" onClick={() => selectVisibleUnpostedForBatch(5)} disabled={batchBusy || !canPostFacebook}>Select 5</button>
-            <button type="button" onClick={() => void postSelectedBatch()} disabled={batchBusy || postBusy || !batchSelectedCount || !canPostFacebook}>
+            <button type="button" onClick={() => void postSelectedBatch()} disabled={batchBusy || !batchSelectedCount || !canPostFacebook}>
               {batchBusy ? `${batchProgress.current}/${batchProgress.total}` : 'Post'}
             </button>
           </div>
@@ -3707,7 +3707,7 @@ export function TavernaCommandCenter() {
             </button>
           ) : null}
           {canPostFacebook ? (
-            <button className="tv2-btn" type="button" onClick={() => void syncMarketplaceStatuses(false)} disabled={refreshBusy || postBusy || batchBusy}>
+            <button className="tv2-btn" type="button" onClick={() => void syncMarketplaceStatuses(false)} disabled={refreshBusy || batchBusy}>
               Sync Marketplace
             </button>
           ) : null}
@@ -3943,10 +3943,10 @@ export function TavernaCommandCenter() {
             </div>
           </div>
           <div className="tv2-split-actions">
-            <button className="tv2-btn tv2-btn-primary" type="button" onClick={() => void post('live')} disabled={postBusy || !selected || !can('facebook.post')}>
+            <button className="tv2-btn tv2-btn-primary" type="button" onClick={() => void post('live')} disabled={selectedPostBusy || !selected || !can('facebook.post')}>
               Post Facebook
             </button>
-            <button className="tv2-btn" type="button" onClick={() => void post('draft')} disabled={postBusy || !selected || !can('facebook.post')}>
+            <button className="tv2-btn" type="button" onClick={() => void post('draft')} disabled={selectedPostBusy || !selected || !can('facebook.post')}>
               FB Draft
             </button>
             <button className="tv2-btn tv2-btn-primary" type="button" onClick={() => void offerupPost('draft')} disabled={offerupBusy || !selected || !can('offerup.post')}>
@@ -4125,7 +4125,7 @@ export function TavernaCommandCenter() {
               <button className="tv2-btn tv2-btn-xs" type="button" onClick={() => setBatchSelectedVins({})} disabled={batchBusy || !batchSelectedCount}>
                 Clear
               </button>
-              <button className="tv2-btn tv2-btn-primary tv2-btn-xs" type="button" onClick={() => void postSelectedBatch()} disabled={batchBusy || postBusy || !batchSelectedCount || !canPostFacebook}>
+              <button className="tv2-btn tv2-btn-primary tv2-btn-xs" type="button" onClick={() => void postSelectedBatch()} disabled={batchBusy || !batchSelectedCount || !canPostFacebook}>
                 {batchBusy ? `Posting ${batchProgress.current}/${batchProgress.total}` : `Post Selected (${batchSelectedCount})`}
               </button>
             </div>
