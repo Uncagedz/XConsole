@@ -131,13 +131,15 @@ def _with_no_store_headers(path: str, response: Response) -> Response:
 
 @app.middleware("http")
 async def optional_basic_auth(request: Request, call_next):
-    if request.url.path == "/api/health":
+    path = request.url.path
+
+    if path == "/api/health" or path.startswith("/static/admin/assets/") or path.startswith("/sales-assistant/assets/"):
         response = await call_next(request)
-        return _with_no_store_headers(request.url.path, response)
+        return _with_no_store_headers(path, response)
 
     if authenticate_basic_header(request.headers.get("authorization", "")):
         response = await call_next(request)
-        return _with_no_store_headers(request.url.path, response)
+        return _with_no_store_headers(path, response)
 
     return Response(
         status_code=401,
