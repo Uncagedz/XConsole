@@ -1958,6 +1958,74 @@ class Lister:
                 )
             )
 
+    def _looks_like_publish_review_step(self):
+        lowered_url = str(self.driver.current_url or "").strip().lower()
+        body_text = self._body_text().lower()
+        return (
+            "step=audience" in lowered_url
+            or "list in more places" in body_text
+            or "list publicly" in body_text
+            or "seller information" in body_text
+        )
+
+    def _assert_publish_review_ready(self):
+        body_text = self._body_text()
+        lowered_body = body_text.lower()
+        blockers = []
+        blocker_tokens = [
+            "please choose",
+            "required",
+            "must include",
+            "enter a city",
+            "select a location",
+        ]
+        for token in blocker_tokens:
+            if token in lowered_body:
+                blockers.append(token)
+
+        publish_button = self._find_button_by_text(["publish"]) or self._find_button_by_text(["post", "list"]) or self._find_clickable_candidate(["publish", "post", "list"])
+        if not publish_button:
+            raise RuntimeError(
+                json.dumps(
+                    {
+                        "message": "publish button not found on facebook publish review step",
+                        "current_url": self.driver.current_url,
+                        "title": self.driver.title,
+                        "inputs": self._summarize_inputs(),
+                        "buttons": self._summarize_buttons(),
+                        "body_preview": body_text[:1600],
+                    }
+                )
+            )
+        if blockers:
+            raise RuntimeError(
+                json.dumps(
+                    {
+                        "message": "facebook publish review step still shows validation blockers",
+                        "blockers": blockers,
+                        "current_url": self.driver.current_url,
+                        "title": self.driver.title,
+                        "inputs": self._summarize_inputs(),
+                        "buttons": self._summarize_buttons(),
+                        "body_preview": body_text[:1600],
+                    }
+                )
+            )
+        if not self._element_is_interactive_enabled(publish_button):
+            raise RuntimeError(
+                json.dumps(
+                    {
+                        "message": "facebook publish button is present but not enabled",
+                        "current_url": self.driver.current_url,
+                        "title": self.driver.title,
+                        "inputs": self._summarize_inputs(),
+                        "buttons": self._summarize_buttons(),
+                        "body_preview": body_text[:1600],
+                    }
+                )
+            )
+        return publish_button
+
     def _publish(self):
         self._assert_ready_to_publish()
         next_labels = ["next", "continue"]
@@ -1968,9 +2036,12 @@ class Lister:
             log("Clicking Next", "main")
             self._click_element(next_button)
             time.sleep(max(self.field_wait_seconds, 1.0))
+        publish_button = None
+        if self._looks_like_publish_review_step():
+            publish_button = self._assert_publish_review_ready()
+        else:
             self._assert_ready_to_publish()
-
-        publish_button = self._find_button_by_text(["publish"]) or self._find_button_by_text(publish_labels) or self._find_clickable_candidate(publish_labels)
+            publish_button = self._find_button_by_text(["publish"]) or self._find_button_by_text(publish_labels) or self._find_clickable_candidate(publish_labels)
         if not publish_button:
             raise RuntimeError(
                 json.dumps(

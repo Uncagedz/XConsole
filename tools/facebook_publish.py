@@ -101,6 +101,20 @@ def _set_linux_chrome_defaults() -> None:
                 break
 
 
+def _configure_runtime_browser_paths(runtime_dir: Path) -> None:
+    cookie_path = runtime_dir / "facebook_session_cookies.json"
+    if _running_on_windows():
+        profile_dir = runtime_dir / "facebook_auth_profile"
+        os.environ.setdefault("FACEBOOK_CHROME_PROFILE_DIR", str(profile_dir))
+    else:
+        profile_dir = runtime_dir / "facebook_headless_profile"
+        if profile_dir.exists():
+            shutil.rmtree(profile_dir, ignore_errors=True)
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        os.environ["FACEBOOK_CHROME_PROFILE_DIR"] = str(profile_dir)
+    os.environ["FACEBOOK_COOKIE_FILE"] = str(cookie_path)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Publish a Facebook Marketplace listing via recovered lister.")
     parser.add_argument("--payload", required=True, help="Path to a JSON payload file.")
@@ -184,8 +198,7 @@ def main() -> int:
         runtime_dir.mkdir(parents=True, exist_ok=True)
         session_state = ensure_runtime_session(root, force_restore=False)
         require_saved_session = not bool(account.get("password")) and bool(session_state.get("ok"))
-        os.environ.setdefault("FACEBOOK_CHROME_PROFILE_DIR", str(runtime_dir / "facebook_auth_profile"))
-        os.environ.setdefault("FACEBOOK_COOKIE_FILE", str(runtime_dir / "facebook_session_cookies.json"))
+        _configure_runtime_browser_paths(runtime_dir)
         os.environ["FACEBOOK_REQUIRE_SAVED_SESSION"] = "1" if require_saved_session else "0"
         os.environ["FACEBOOK_SESSION_CHECK_WAIT_SECONDS"] = "0.75"
         os.environ["FACEBOOK_LOGIN_WAIT_SECONDS"] = "16"
