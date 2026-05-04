@@ -9603,6 +9603,7 @@ def _one_click_post_from_inventory(request: FacebookOneClickPostRequest) -> dict
         "selection_fallback_reason": selection_fallback_reason,
         "images_for_post": images_for_post,
         "import_result": import_result,
+        "prepared_post_request": post_request.model_dump(),
         "post_result": result,
     }
 
@@ -9634,29 +9635,42 @@ def _batch_post_from_inventory(request: FacebookBatchPostRequest) -> dict[str, A
                 photo_limit=request.photo_limit,
             )
         )
-        vehicle = _find_vehicle_by_vin(clean_vin)
-        if not vehicle:
-            raise HTTPException(status_code=404, detail={"message": f"Vehicle not found for VIN {clean_vin}"})
-        vehicle_for_post = dict(vehicle)
-        vehicle_for_post["vin"] = clean_vin
-        post_request = FacebookPostRequest(
-            vin=clean_vin,
-            title=str(vehicle_for_post.get("title") or clean_vin),
-            price=vehicle_for_post.get("price") or "",
-            mileage=vehicle_for_post.get("mileage"),
-            drivetrain=vehicle_for_post.get("drivetrain"),
-            engine=vehicle_for_post.get("engine"),
-            transmission=vehicle_for_post.get("transmission"),
-            location=_facebook_listing_location(vehicle_for_post.get("location")),
-            exterior=vehicle_for_post.get("exterior"),
-            interior=vehicle_for_post.get("interior"),
-            detail_url=vehicle_for_post.get("detail_url"),
-            description=str(draft.get("caption") or ""),
-            images=list(draft.get("images_for_post") or []),
-            account_id=account_id,
-            suggested_down_payment=_facebook_post_price(vehicle_for_post),
-            mode="live",
-        )
+        prepared_payload = draft.get("prepared_post_request")
+        if isinstance(prepared_payload, dict) and prepared_payload.get("vin"):
+            prepared_payload = dict(prepared_payload)
+            prepared_payload["mode"] = "live"
+            prepared_payload["account_id"] = account_id
+            prepared_payload["description"] = str(draft.get("caption") or prepared_payload.get("description") or "")
+            prepared_payload["images"] = list(draft.get("images_for_post") or prepared_payload.get("images") or [])
+            post_request = FacebookPostRequest(**prepared_payload)
+        else:
+            vehicle = _find_vehicle_by_vin(clean_vin)
+            if not vehicle:
+                raise HTTPException(status_code=404, detail={"message": f"Vehicle not found for VIN {clean_vin}"})
+            vehicle_for_post = dict(vehicle)
+            vehicle_for_post["vin"] = clean_vin
+            post_request = FacebookPostRequest(
+                vin=clean_vin,
+                title=str(vehicle_for_post.get("title") or clean_vin),
+                price=vehicle_for_post.get("price") or "",
+                model=vehicle_for_post.get("model"),
+                mileage=vehicle_for_post.get("mileage"),
+                body_style=vehicle_for_post.get("body_style"),
+                fuel_type=vehicle_for_post.get("fuel_type"),
+                condition=vehicle_for_post.get("condition") or "Good",
+                drivetrain=vehicle_for_post.get("drivetrain"),
+                engine=vehicle_for_post.get("engine"),
+                transmission=vehicle_for_post.get("transmission"),
+                location=_facebook_listing_location(vehicle_for_post.get("location")),
+                exterior=vehicle_for_post.get("exterior"),
+                interior=vehicle_for_post.get("interior"),
+                detail_url=vehicle_for_post.get("detail_url"),
+                description=str(draft.get("caption") or ""),
+                images=list(draft.get("images_for_post") or []),
+                account_id=account_id,
+                suggested_down_payment=_facebook_post_price(vehicle_for_post),
+                mode="live",
+            )
         prepared.append(post_request)
         prep_results.append(
             {
