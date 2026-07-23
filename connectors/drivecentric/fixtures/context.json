@@ -1,0 +1,24 @@
+{
+  "source": "drivecentric",
+  "externalLeadId": "synthetic-lead-1",
+  "externalCustomerId": "synthetic-customer-1",
+  "conversationId": "synthetic-conversation-1",
+  "customer": {
+    "name": "Synthetic Customer"
+  },
+  "vehicleInterest": {
+    "vin": "1HGCM82633A004352",
+    "stockNumber": "SYN-1001",
+    "description": "2024 Honda Accord EX"
+  },
+  "conversation": [
+    {
+      "direction": "inbound",
+      "channel": "sms",
+      "body": "Is the synthetic test vehicle available?",
+      "sentAt": "2026-07-23T12:00:00.000Z"
+    }
+  ],
+  "extractedAt": "2026-07-23T12:00:01.000Z",
+  "rawContext": {}
+}

@@ -1,0 +1,14 @@
+[
+  {
+    "vin": "1HGCM82633A004352",
+    "stockNumber": "SYN-1001",
+    "year": 2024,
+    "make": "Honda",
+    "model": "Accord",
+    "trim": "EX",
+    "mileage": 12000,
+    "retailPrice": 28995,
+    "websiteUrl": "https://example.invalid/inventory/SYN-1001",
+    "photos": []
+  }
+]
