@@ -4,10 +4,10 @@ packages:
   - connectors
   - connectors/*
 
-onlyBuiltDependencies:
-  - "@prisma/client"
-  - "@prisma/engines"
-  - "@swc/core"
-  - argon2
-  - esbuild
-  - prisma
+allowBuilds:
+  "@prisma/client": true
+  "@prisma/engines": true
+  "@swc/core": true
+  argon2: true
+  esbuild: true
+  prisma: true
