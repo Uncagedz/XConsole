@@ -1,0 +1,1 @@
+{"$schema":"https://railway.com/railway.schema.json","build":{"builder":"NIXPACKS","buildCommand":"corepack enable && pnpm install --frozen-lockfile && pnpm --filter @xconsole/gateway-api... build"},"deploy":{"startCommand":"pnpm --filter @xconsole/gateway-api start","healthcheckPath":"/health","restartPolicyType":"ON_FAILURE","restartPolicyMaxRetries":5}}

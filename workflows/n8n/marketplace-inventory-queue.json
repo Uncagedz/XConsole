@@ -1,0 +1,9 @@
+{
+  "name":"XConsole - Marketplace Inventory Queue","active":false,"settings":{"executionOrder":"v1"},
+  "nodes":[
+    {"id":"webhook","name":"Vehicle Becomes Frontline Ready","type":"n8n-nodes-base.webhook","typeVersion":2,"position":[0,0],"parameters":{"httpMethod":"POST","path":"xconsole-frontline-ready","responseMode":"onReceived"}},
+    {"id":"preflight","name":"Confirm Photos Price and Generate Description","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[220,0],"parameters":{"method":"POST","url":"={{$env.XCONSOLE_GATEWAY_URL}}/api/workflows/marketplace/preflight","sendHeaders":true,"headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{$env.XCONSOLE_GATEWAY_TOKEN}}"}]},"sendBody":true,"contentType":"raw","rawContentType":"application/json","body":"={{JSON.stringify($json.body)}}"}},
+    {"id":"queue","name":"Queue Approval-Gated Posting and Track Result","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[440,0],"parameters":{"method":"POST","url":"={{$env.XCONSOLE_GATEWAY_URL}}/api/workflows/marketplace/queue","sendHeaders":true,"headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{$env.XCONSOLE_GATEWAY_TOKEN}}"}]}}}
+  ],
+  "connections":{"Vehicle Becomes Frontline Ready":{"main":[[{"node":"Confirm Photos Price and Generate Description","type":"main","index":0}]]},"Confirm Photos Price and Generate Description":{"main":[[{"node":"Queue Approval-Gated Posting and Track Result","type":"main","index":0}]]}}
+}

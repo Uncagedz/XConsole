@@ -1,4 +1,24 @@
-# CDJRF FB Flow
+# XConsole
+
+XConsole is a personal dealership sales operating system that unifies the
+existing dealership automation dashboard, DriveCentric AI extension, connector
+jobs, and a Windows Local Agent. The Phase 1 monorepo lives on
+`feature/xconsole-unification`.
+
+Start with:
+
+- [Development setup](docs/DEVELOPMENT.md)
+- [Architecture](docs/XCONSOLE-ARCHITECTURE.md)
+- [Existing-system audit](docs/EXISTING-SYSTEM-AUDIT.md)
+- [Migration plan](docs/MIGRATION-PLAN.md)
+- [Phase 1 status](docs/PHASE-1-STATUS.md)
+- [Railway deployment](docs/RAILWAY-DEPLOYMENT.md)
+
+The legacy FastAPI/dashboard startup remains below as a compatibility path
+until its adapters are replaced. Browser session state, credentials, customer
+PII, and captured portal artifacts must never be committed.
+
+## Legacy CDJRF FB Flow
 
 ## Start Local Stack
 

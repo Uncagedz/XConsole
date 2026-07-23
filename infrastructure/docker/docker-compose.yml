@@ -1,0 +1,95 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-xconsole}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-xconsole}
+      POSTGRES_DB: ${POSTGRES_DB:-xconsole}
+    ports: ["5432:5432"]
+    volumes: [xconsole_postgres:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-xconsole}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports: ["6379:6379"]
+    volumes: [xconsole_redis:/data]
+
+  gateway-api:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.service
+      args: {PNPM_FILTER: "@xconsole/gateway-api"}
+    env_file: ../../.env
+    environment:
+      PORT: 3001
+      DATABASE_URL: postgresql://${POSTGRES_USER:-xconsole}:${POSTGRES_PASSWORD:-xconsole}@postgres:5432/${POSTGRES_DB:-xconsole}?schema=public
+      REDIS_URL: redis://redis:6379
+    ports: ["3001:3001"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_started}
+
+  ai-api:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.service
+      args: {PNPM_FILTER: "@xconsole/ai-api"}
+    env_file: ../../.env
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-xconsole}:${POSTGRES_PASSWORD:-xconsole}@postgres:5432/${POSTGRES_DB:-xconsole}?schema=public
+      XCONSOLE_GATEWAY_URL: http://gateway-api:3001
+    ports: ["3000:3000"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      gateway-api: {condition: service_started}
+
+  dashboard:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.service
+      args: {PNPM_FILTER: "@xconsole/dashboard"}
+    command: ["pnpm", "--filter", "@xconsole/dashboard", "preview", "--", "--host", "0.0.0.0", "--port", "5173"]
+    ports: ["5173:5173"]
+    depends_on: [gateway-api]
+
+  scheduler:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.service
+      args: {PNPM_FILTER: "@xconsole/workflow-orchestrator"}
+    env_file: ../../.env
+    environment:
+      PORT: 3002
+      XCONSOLE_GATEWAY_URL: http://gateway-api:3001
+    ports: ["3002:3002"]
+    depends_on: [gateway-api]
+
+  n8n:
+    image: n8nio/n8n:1.106.3
+    restart: unless-stopped
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-xconsole}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER:-xconsole}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-xconsole}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      XCONSOLE_GATEWAY_URL: http://gateway-api:3001
+      XCONSOLE_GATEWAY_TOKEN: ${XCONSOLE_API_TOKEN}
+    ports: ["5678:5678"]
+    volumes: [xconsole_n8n:/home/node/.n8n]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+volumes:
+  xconsole_postgres:
+  xconsole_redis:
+  xconsole_n8n:

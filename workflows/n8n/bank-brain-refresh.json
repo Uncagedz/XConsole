@@ -1,0 +1,9 @@
+{
+  "name":"XConsole - Bank Brain Refresh","active":false,"settings":{"executionOrder":"v1"},
+  "nodes":[
+    {"id":"webhook","name":"New RouteOne Document","type":"n8n-nodes-base.webhook","typeVersion":2,"position":[0,0],"parameters":{"httpMethod":"POST","path":"xconsole-routeone-document","responseMode":"onReceived"}},
+    {"id":"extract","name":"Extract and Compare Prior Version","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[220,0],"parameters":{"method":"POST","url":"={{$env.XCONSOLE_GATEWAY_URL}}/api/workflows/bank-brain/compare","sendHeaders":true,"headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{$env.XCONSOLE_GATEWAY_TOKEN}}"}]},"sendBody":true,"contentType":"raw","rawContentType":"application/json","body":"={{JSON.stringify($json.body)}}"}},
+    {"id":"review","name":"Flag Changes and Require Human Review","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[440,0],"parameters":{"method":"POST","url":"={{$env.XCONSOLE_GATEWAY_URL}}/api/workflows/bank-brain/review-task","sendHeaders":true,"headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{$env.XCONSOLE_GATEWAY_TOKEN}}"}]}}}
+  ],
+  "connections":{"New RouteOne Document":{"main":[[{"node":"Extract and Compare Prior Version","type":"main","index":0}]]},"Extract and Compare Prior Version":{"main":[[{"node":"Flag Changes and Require Human Review","type":"main","index":0}]]}}
+}

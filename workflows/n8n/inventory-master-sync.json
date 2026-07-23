@@ -1,0 +1,22 @@
+{
+  "name": "XConsole - Inventory Master Sync",
+  "active": false,
+  "settings": {"executionOrder": "v1"},
+  "nodes": [
+    {"id":"schedule","name":"Schedule","type":"n8n-nodes-base.scheduleTrigger","typeVersion":1.2,"position":[0,0],"parameters":{"rule":{"interval":[{"field":"minutes","minutesInterval":30}]}}},
+    {"id":"website","name":"Website Inventory Sync","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[220,0],"parameters":{"method":"POST","url":"={{$env.XCONSOLE_GATEWAY_URL}}/api/connectors/dealership-website/retry","sendHeaders":true,"headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{$env.XCONSOLE_GATEWAY_TOKEN}}"}]}}},
+    {"id":"vauto","name":"Local Agent vAuto Job","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[440,0],"parameters":{"method":"POST","url":"={{$env.XCONSOLE_GATEWAY_URL}}/api/connectors/vauto/retry","sendHeaders":true,"headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{$env.XCONSOLE_GATEWAY_TOKEN}}"}]}}},
+    {"id":"recon","name":"Local Agent ReconVision Job","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[660,0],"parameters":{"method":"POST","url":"={{$env.XCONSOLE_GATEWAY_URL}}/api/connectors/reconvision/retry","sendHeaders":true,"headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{$env.XCONSOLE_GATEWAY_TOKEN}}"}]}}},
+    {"id":"keys","name":"Local Agent 1Micro Job","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[880,0],"parameters":{"method":"POST","url":"={{$env.XCONSOLE_GATEWAY_URL}}/api/connectors/onemicro/retry","sendHeaders":true,"headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{$env.XCONSOLE_GATEWAY_TOKEN}}"}]}}},
+    {"id":"normalize","name":"Normalize by VIN and Update PostgreSQL","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[1100,0],"parameters":{"method":"POST","url":"={{$env.XCONSOLE_GATEWAY_URL}}/api/workflows/inventory/normalize","sendHeaders":true,"headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{$env.XCONSOLE_GATEWAY_TOKEN}}"}]}}},
+    {"id":"health","name":"Update Connector Health","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[1320,0],"parameters":{"method":"POST","url":"={{$env.XCONSOLE_GATEWAY_URL}}/api/workflows/connectors/reconcile-health","sendHeaders":true,"headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{$env.XCONSOLE_GATEWAY_TOKEN}}"}]}}}
+  ],
+  "connections": {
+    "Schedule":{"main":[[{"node":"Website Inventory Sync","type":"main","index":0}]]},
+    "Website Inventory Sync":{"main":[[{"node":"Local Agent vAuto Job","type":"main","index":0}]]},
+    "Local Agent vAuto Job":{"main":[[{"node":"Local Agent ReconVision Job","type":"main","index":0}]]},
+    "Local Agent ReconVision Job":{"main":[[{"node":"Local Agent 1Micro Job","type":"main","index":0}]]},
+    "Local Agent 1Micro Job":{"main":[[{"node":"Normalize by VIN and Update PostgreSQL","type":"main","index":0}]]},
+    "Normalize by VIN and Update PostgreSQL":{"main":[[{"node":"Update Connector Health","type":"main","index":0}]]}
+  }
+}

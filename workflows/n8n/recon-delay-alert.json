@@ -1,0 +1,9 @@
+{
+  "name":"XConsole - Recon Delay Alert","active":false,"settings":{"executionOrder":"v1"},
+  "nodes":[
+    {"id":"schedule","name":"Recon Target Schedule","type":"n8n-nodes-base.scheduleTrigger","typeVersion":1.2,"position":[0,0],"parameters":{"rule":{"interval":[{"field":"hours","hoursInterval":2}]}}},
+    {"id":"check","name":"Check ReconVision 1Micro and Website","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[220,0],"parameters":{"method":"POST","url":"={{$env.XCONSOLE_GATEWAY_URL}}/api/workflows/recon/delays","sendHeaders":true,"headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{$env.XCONSOLE_GATEWAY_TOKEN}}"}]}}},
+    {"id":"alert","name":"Create Recon Alert","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[440,0],"parameters":{"method":"POST","url":"={{$env.XCONSOLE_GATEWAY_URL}}/api/workflows/recon/alerts","sendHeaders":true,"headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{$env.XCONSOLE_GATEWAY_TOKEN}}"}]}}}
+  ],
+  "connections":{"Recon Target Schedule":{"main":[[{"node":"Check ReconVision 1Micro and Website","type":"main","index":0}]]},"Check ReconVision 1Micro and Website":{"main":[[{"node":"Create Recon Alert","type":"main","index":0}]]}}
+}

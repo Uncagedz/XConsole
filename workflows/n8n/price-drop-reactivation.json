@@ -1,0 +1,9 @@
+{
+  "name":"XConsole - Price Drop Reactivation","active":false,"settings":{"executionOrder":"v1"},
+  "nodes":[
+    {"id":"webhook","name":"vAuto Price Change","type":"n8n-nodes-base.webhook","typeVersion":2,"position":[0,0],"parameters":{"httpMethod":"POST","path":"xconsole-price-drop","responseMode":"onReceived"}},
+    {"id":"match","name":"Find Matching Interested Customers","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[220,0],"parameters":{"method":"POST","url":"={{$env.XCONSOLE_GATEWAY_URL}}/api/workflows/price-drop/matches","sendHeaders":true,"headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{$env.XCONSOLE_GATEWAY_TOKEN}}"}]},"sendBody":true,"contentType":"raw","rawContentType":"application/json","body":"={{JSON.stringify($json.body)}}"}},
+    {"id":"draft","name":"Generate Personalized Draft and Approval Task","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[440,0],"parameters":{"method":"POST","url":"={{$env.XCONSOLE_GATEWAY_URL}}/api/workflows/price-drop/drafts","sendHeaders":true,"headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{$env.XCONSOLE_GATEWAY_TOKEN}}"}]}}}
+  ],
+  "connections":{"vAuto Price Change":{"main":[[{"node":"Find Matching Interested Customers","type":"main","index":0}]]},"Find Matching Interested Customers":{"main":[[{"node":"Generate Personalized Draft and Approval Task","type":"main","index":0}]]}}
+}

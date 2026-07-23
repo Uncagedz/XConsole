@@ -1,0 +1,9 @@
+{
+  "name":"XConsole - CIT Monitor","active":false,"settings":{"executionOrder":"v1"},
+  "nodes":[
+    {"id":"webhook","name":"Reynolds Report Import","type":"n8n-nodes-base.webhook","typeVersion":2,"position":[0,0],"parameters":{"httpMethod":"POST","path":"xconsole-reynolds-report","responseMode":"onReceived"}},
+    {"id":"compare","name":"Compare Prior Report and Detect Aged Deals","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[220,0],"parameters":{"method":"POST","url":"={{$env.XCONSOLE_GATEWAY_URL}}/api/workflows/cit/compare","sendHeaders":true,"headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{$env.XCONSOLE_GATEWAY_TOKEN}}"}]},"sendBody":true,"contentType":"raw","rawContentType":"application/json","body":"={{JSON.stringify($json.body)}}"}},
+    {"id":"alert","name":"Create CIT Alerts","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[440,0],"parameters":{"method":"POST","url":"={{$env.XCONSOLE_GATEWAY_URL}}/api/workflows/cit/alerts","sendHeaders":true,"headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{$env.XCONSOLE_GATEWAY_TOKEN}}"}]}}}
+  ],
+  "connections":{"Reynolds Report Import":{"main":[[{"node":"Compare Prior Report and Detect Aged Deals","type":"main","index":0}]]},"Compare Prior Report and Detect Aged Deals":{"main":[[{"node":"Create CIT Alerts","type":"main","index":0}]]}}
+}

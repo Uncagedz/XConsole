@@ -1,0 +1,54 @@
+name: XConsole CI
+
+on:
+  push:
+    branches: [main, feature/xconsole-unification]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: xconsole
+          POSTGRES_PASSWORD: xconsole
+          POSTGRES_DB: xconsole
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U xconsole"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://xconsole:xconsole@127.0.0.1:5432/xconsole?schema=public
+      NODE_ENV: test
+      JWT_ACCESS_SECRET: test-access-secret-that-is-at-least-32-characters
+      JWT_REFRESH_PEPPER: test-refresh-pepper-that-is-at-least-32-characters
+      LLM_PROVIDER: mock
+      XCONSOLE_API_TOKEN: test-dashboard-token-at-least-24-characters
+      XCONSOLE_DEVICE_REGISTRATION_CODE: test-registration-code
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm security:check
+      - run: pnpm db:generate
+      - run: pnpm db:validate
+      - run: pnpm db:deploy
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q

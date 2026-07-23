@@ -1,0 +1,12 @@
+{
+  "services": [
+    {"name":"xconsole-dashboard","kind":"application","workspace":"@xconsole/dashboard","healthcheck":"/","start":"pnpm --filter @xconsole/dashboard preview -- --host 0.0.0.0 --port $PORT"},
+    {"name":"xconsole-gateway-api","kind":"application","workspace":"@xconsole/gateway-api","healthcheck":"/health","start":"pnpm --filter @xconsole/gateway-api start"},
+    {"name":"xconsole-ai-api","kind":"application","workspace":"@xconsole/ai-api","healthcheck":"/health","start":"pnpm --filter @xconsole/ai-api start"},
+    {"name":"xconsole-postgres","kind":"postgres"},
+    {"name":"xconsole-redis","kind":"redis"},
+    {"name":"xconsole-n8n","kind":"docker-image","image":"n8nio/n8n:1.106.3","healthcheck":"/healthz"},
+    {"name":"xconsole-scheduler","kind":"application","workspace":"@xconsole/workflow-orchestrator","healthcheck":"/health","start":"pnpm --filter @xconsole/workflow-orchestrator start"}
+  ],
+  "excluded": ["xconsole-local-agent"]
+}
