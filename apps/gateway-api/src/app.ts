@@ -160,6 +160,35 @@ export function createApp(env: GatewayEnv, store: GatewayStoreContract = new Gat
       persist: request.body?.persist,
     }));
   }));
+  app.get('/api/bank-brain/valuations/status', requireDashboard, asyncRoute(async (_request, response) => {
+    response.json(await inventory.valuationStatus());
+  }));
+  app.post(
+    '/api/bank-brain/valuations/upload',
+    requireDashboard,
+    express.raw({ type: () => true, limit: '5mb' }),
+    asyncRoute(async (request, response) => {
+      const encodedFilename = z.string().min(1).max(512).parse(request.header('x-file-name'));
+      const filename = decodeURIComponent(encodedFilename).replace(/^.*[\\/]/, '');
+      const raw = Buffer.isBuffer(request.body)
+        ? new Uint8Array(request.body)
+        : new Uint8Array();
+      if (!raw.byteLength) {
+        response.status(400).json({
+          error: {
+            type: 'validation',
+            message: 'The JD Power valuation file is empty.',
+          },
+        });
+        return;
+      }
+      response.json(await inventory.uploadValuations(
+        raw,
+        filename,
+        request.header('content-type') ?? 'application/vnd.ms-excel',
+      ));
+    }),
+  );
   app.get('/api/vehicles', requireDashboard, asyncRoute(async (_request, response) => {
     response.json(await inventory.list());
   }));

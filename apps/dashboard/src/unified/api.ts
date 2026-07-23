@@ -8,8 +8,16 @@ import {
 } from '@drivecentric-ai/shared/xconsole';
 import { z } from 'zod';
 
-const baseUrl = (import.meta.env.VITE_GATEWAY_API_URL as string | undefined)?.replace(/\/+$/, '') ?? 'http://127.0.0.1:3001';
+const baseUrl = (import.meta.env.VITE_GATEWAY_API_URL as string | undefined)?.replace(/\/+$/, '') ?? '';
 const token = import.meta.env.VITE_XCONSOLE_API_TOKEN as string | undefined;
+const valuationStatusSchema = z.object({
+  ok: z.boolean(),
+  count: z.coerce.number().int().nonnegative(),
+  source_file: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+  diagnostics: z.record(z.unknown()).optional(),
+});
+export type ValuationStatus = z.infer<typeof valuationStatusSchema>;
 
 export class GatewayError extends Error {
   constructor(
@@ -86,6 +94,19 @@ export const gateway = {
     return request<InventoryResponse>('/api/inventory/sync-live', inventoryResponseSchema, {
       method: 'POST',
       body: JSON.stringify({ persist: true, timeoutSeconds: 180 }),
+    });
+  },
+  async valuationStatus(): Promise<ValuationStatus> {
+    return request<ValuationStatus>('/api/bank-brain/valuations/status', valuationStatusSchema);
+  },
+  async uploadValuations(file: File): Promise<ValuationStatus> {
+    return request<ValuationStatus>('/api/bank-brain/valuations/upload', valuationStatusSchema, {
+      method: 'POST',
+      headers: {
+        'content-type': file.type || 'application/vnd.ms-excel',
+        'x-file-name': encodeURIComponent(file.name),
+      },
+      body: file,
     });
   },
   async vehicle(vin: string): Promise<Vehicle> {

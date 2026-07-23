@@ -16,6 +16,8 @@ const vehicles: Vehicle[] = [
     status: 'live',
     mileage: 8,
     retailPrice: 49995,
+    jdPowerTradeIn: 51200,
+    loanToValue: 108.46,
     daysInStock: 2,
     websiteUrl: 'https://dealer.example/new/NEW-1',
     photos: ['https://dealer.example/photo.jpg'],
@@ -35,6 +37,8 @@ const vehicles: Vehicle[] = [
     status: 'live',
     mileage: 32000,
     retailPrice: 26995,
+    jdPowerTradeIn: 30100,
+    loanToValue: 103.49,
     daysInStock: 20,
     websiteUrl: 'https://dealer.example/used/USED-9',
     photos: [],
@@ -69,5 +73,14 @@ describe('unified inventory presentation', () => {
     })[0]?.retailPrice).toBe(26995);
     expect(inventoryBreakdown(vehicles)).toEqual({ new: 1, used: 1, withPhotos: 1 });
     expect(vehicleTitle(vehicles[1]!)).toBe('2022 Chrysler Pacifica');
+  });
+
+  it('sorts populated JD Power LTV values from strongest to weakest', () => {
+    expect(filterAndSortInventory(vehicles, {
+      query: '',
+      condition: 'all',
+      photos: 'all',
+      sort: 'ltv-low',
+    }).map((vehicle) => vehicle.loanToValue)).toEqual([103.49, 108.46]);
   });
 });

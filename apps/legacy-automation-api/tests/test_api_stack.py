@@ -898,3 +898,49 @@ def test_simulate_credit_structure_returns_recommendation(monkeypatch):
     assert payload["ok"] is True
     assert payload["structure"]["financed_amount"] > 0
     assert payload["recommendation"]["best_bank"] is not None
+
+
+def test_jd_power_parser_and_ltv_use_trade_in_value():
+    raw = (
+        "Vehicle,Stock #,VIN,Price,Jd Power Trade In\n"
+        "2025 Test SUV,T100,1HGCM82633A004352,30000,28000\n"
+    ).encode("utf-8")
+    parsed = api._parse_jd_power_file(raw, "valuations.csv", "text/csv")
+
+    assert parsed["diagnostics"]["rows_seen"] == 2
+    assert parsed["items"] == [{
+        "vin": "1HGCM82633A004352",
+        "vehicle": "2025 Test SUV",
+        "stock_number": "T100",
+        "class": "",
+        "new_used": "",
+        "dealer_price": 30000.0,
+        "jd_power_trade_in": 28000.0,
+        "source_file": "valuations.csv",
+    }]
+    assert api._jd_power_ltv_from_pricing(
+        inventory_price=30000,
+        jd_trade_value=28000,
+    ) == {
+        "bank_sale_price": 32400.0,
+        "taxes": 1944.0,
+        "ltv_basis": 34344.0,
+        "ltv": 122.66,
+    }
+
+
+def test_jd_power_upload_saves_to_configured_persistent_state(monkeypatch, tmp_path):
+    target = tmp_path / "_xconsole" / "jd_power_trade_values.json"
+    monkeypatch.setattr(api, "JD_POWER_VALUATIONS_PATH", target)
+
+    saved = api._save_jd_power_valuations([
+        {
+            "vin": "1HGCM82633A004352",
+            "jd_power_trade_in": 28000.0,
+            "source_file": "valuations.xls",
+        },
+    ], "valuations.xls")
+
+    assert saved["count"] == 1
+    assert target.exists()
+    assert api._load_jd_power_valuations()["1HGCM82633A004352"]["jd_power_trade_in"] == 28000.0

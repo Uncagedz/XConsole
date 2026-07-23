@@ -33,7 +33,16 @@ const legacySyncResponseSchema = z.object({
   source_status: z.record(z.unknown()).optional(),
 }).passthrough();
 
+const valuationStatusSchema = z.object({
+  ok: z.boolean(),
+  count: z.coerce.number().int().nonnegative(),
+  source_file: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+  diagnostics: z.record(z.unknown()).optional(),
+}).passthrough();
+
 export type InventorySyncRequest = z.input<typeof syncRequestSchema>;
+export type ValuationStatus = z.infer<typeof valuationStatusSchema>;
 
 export class InventorySyncError extends Error {
   readonly statusCode = 502;
@@ -152,6 +161,9 @@ export function normalizeLegacyVehicle(
     retailPrice: numberValue(item.retailPrice ?? item.retail_price ?? item.sale_price ?? item.price),
     msrp: numberValue(item.msrp),
     cost: numberValue(item.cost),
+    jdPowerTradeIn: numberValue(item.jdPowerTradeIn ?? item.jd_power_trade_in),
+    loanToValue: numberValue(item.loanToValue ?? item.jd_power_ltv ?? item.ltv),
+    ltvBasis: numberValue(item.ltvBasis ?? item.bank_ltv_basis),
     daysInStock: integerValue(item.daysInStock ?? item.days_in_stock),
     websiteUrl,
     photos: photoUrls,
@@ -248,7 +260,7 @@ export class InventoryService {
     const headers = new Headers(init.headers);
     headers.set('accept', 'application/json');
     headers.set('authorization', `Bearer ${this.env.XCONSOLE_LEGACY_API_TOKEN}`);
-    if (init.body) headers.set('content-type', 'application/json');
+    if (typeof init.body === 'string') headers.set('content-type', 'application/json');
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -338,6 +350,30 @@ export class InventoryService {
 
   async get(vin: string) {
     return (await this.list()).items.find((vehicle) => vehicle.vin === vin.toUpperCase());
+  }
+
+  async valuationStatus(): Promise<ValuationStatus> {
+    return valuationStatusSchema.parse(
+      await this.legacyJson('/api/bank-brain/valuations/status'),
+    );
+  }
+
+  async uploadValuations(
+    raw: Uint8Array,
+    filename: string,
+    contentType = 'application/vnd.ms-excel',
+  ): Promise<ValuationStatus> {
+    const bytes = new Uint8Array(raw.byteLength);
+    bytes.set(raw);
+    const form = new FormData();
+    form.append('file', new Blob([bytes.buffer], { type: contentType }), filename);
+    this.cached = null;
+    return valuationStatusSchema.parse(
+      await this.legacyJson('/api/bank-brain/valuations/upload', {
+        method: 'POST',
+        body: form,
+      }, 120_000),
+    );
   }
 
   async sync(input: InventorySyncRequest = {}) {

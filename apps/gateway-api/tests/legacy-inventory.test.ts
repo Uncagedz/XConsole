@@ -19,6 +19,9 @@ describe('legacy inventory bridge', () => {
       title: '2026 Chrysler Pacifica Select',
       stock_number: 'T100',
       price: '$33,274',
+      jd_power_trade_in: '$31,725',
+      jd_power_ltv: '119.35',
+      bank_ltv_basis: '$37,851.44',
       mileage: '6,303',
       inventory_category: 'used',
       drivetrain: 'FWD',
@@ -37,6 +40,9 @@ describe('legacy inventory bridge', () => {
       trim: 'Select',
       stockNumber: 'T100',
       retailPrice: 33274,
+      jdPowerTradeIn: 31725,
+      loanToValue: 119.35,
+      ltvBasis: 37851.44,
       mileage: 6303,
       condition: 'used',
       drivetrain: 'FWD',
@@ -122,5 +128,36 @@ describe('legacy inventory bridge', () => {
 
     await expect(new InventoryService(configuredEnv, new GatewayStore(), fetchMock).sync())
       .rejects.toThrow('last good inventory cache was preserved');
+  });
+
+  it('forwards JD Power valuation status and file uploads to the protected legacy adapter', async () => {
+    const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => new Response(JSON.stringify({
+      ok: true,
+      count: 825,
+      source_file: 'jd-power.xls',
+      updated_at: '2026-07-23T23:30:00Z',
+      method: init?.method ?? 'GET',
+    }), { status: 200 })) as unknown as typeof fetch;
+    const service = new InventoryService(configuredEnv, new GatewayStore(), fetchMock);
+
+    expect((await service.valuationStatus()).count).toBe(825);
+    expect((await service.uploadValuations(
+      new TextEncoder().encode('xls-data'),
+      'jd-power.xls',
+    )).source_file).toBe('jd-power.xls');
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://legacy.example/api/bank-brain/valuations/status',
+      expect.objectContaining({ headers: expect.any(Headers) }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://legacy.example/api/bank-brain/valuations/upload',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.any(FormData),
+      }),
+    );
   });
 });

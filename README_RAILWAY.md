@@ -33,9 +33,12 @@ Optional if you attach a Railway volume for persistent RouteOne forms:
 
 ```text
 BANK_DOCS_ROOT=/app/Bank
+XCONSOLE_STATE_DIR=/app/Bank/_xconsole
 ```
 
 Mount the volume at `/app/Bank` if you want uploaded/downloaded bank documents to survive redeploys.
+JD Power valuation uploads are stored under `XCONSOLE_STATE_DIR` so trade values and
+LTV calculations also survive deploys.
 
 ## RouteOne Forms
 
