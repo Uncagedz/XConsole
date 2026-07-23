@@ -1,0 +1,31 @@
+{
+  "name": "@xconsole/dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "preview": "vite preview",
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.unified.json --pretty false",
+    "lint": "tsc -p tsconfig.unified.json --pretty false",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@drivecentric-ai/shared": "workspace:*",
+    "zod": "^3.23.8",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.1",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react-swc": "^3.7.1",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.9"
+  }
+}

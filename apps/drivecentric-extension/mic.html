@@ -1,0 +1,96 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Closer AI Dictation</title>
+    <style>
+      body {
+        margin: 0;
+        min-width: 360px;
+        background: #101112;
+        color: #f5f5f7;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      }
+
+      main {
+        display: grid;
+        gap: 14px;
+        padding: 18px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 20px;
+      }
+
+      p {
+        margin: 0;
+        color: #b8b8bc;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      button {
+        min-height: 48px;
+        border: 0;
+        border-radius: 14px;
+        background: #d8ffe2;
+        color: #07110a;
+        font-weight: 800;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      textarea {
+        min-height: 150px;
+        resize: vertical;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 14px;
+        padding: 12px;
+        background: #18191b;
+        color: #fff;
+        font: inherit;
+      }
+
+      .secondary {
+        background: #242528;
+        color: #f5f5f7;
+      }
+
+      .status {
+        color: #d8ffe2;
+      }
+
+      .warning {
+        color: #ffd28a;
+      }
+    </style>
+  </head>
+
+  <body>
+    <main>
+      <div>
+        <h1>Closer Dictation</h1>
+        <p>This page opens as a real Chrome extension page so Chrome can ask for microphone permission.</p>
+      </div>
+
+      <button id="start">Start Listening</button>
+
+      <textarea id="transcript" placeholder="Your spoken context will appear here..."></textarea>
+
+      <button id="use">Use This Context</button>
+      <button id="close" class="secondary">Close</button>
+
+      <p id="status" class="status">Ready. Click Start Listening and allow microphone access.</p>
+      <p class="warning">
+        If Chrome does not ask, open chrome://settings/content/microphone and remove any blocked chrome-extension entry.
+      </p>
+    </main>
+
+    <script type="module" src="/src/offscreen/mic-window.ts"></script>
+  </body>
+</html>

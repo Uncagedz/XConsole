@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Closer AI extension icon">
+  <defs>
+    <linearGradient id="bg" x1="16" y1="8" x2="112" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#202321"/>
+      <stop offset="0.48" stop-color="#090B0A"/>
+      <stop offset="1" stop-color="#102118"/>
+    </linearGradient>
+    <linearGradient id="bubble" x1="31" y1="28" x2="100" y2="99" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F2FFF5"/>
+      <stop offset="0.52" stop-color="#CFFFE0"/>
+      <stop offset="1" stop-color="#78E8A1"/>
+    </linearGradient>
+    <linearGradient id="stroke" x1="41" y1="64" x2="88" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0B2414"/>
+      <stop offset="1" stop-color="#06140B"/>
+    </linearGradient>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <rect width="128" height="128" rx="28" fill="url(#bg)"/>
+  <path d="M21 23c10-11 28-15 45-13 23 3 41 17 47 37 8 27-6 55-31 67-22 11-50 6-65-12C-2 78 1 44 21 23Z" fill="#D8FFE2" opacity="0.08"/>
+  <path d="M98 22c5 0 9 4 9 9s-4 9-9 9-9-4-9-9 4-9 9-9Z" fill="#D8FFE2" opacity="0.3"/>
+
+  <g filter="url(#softShadow)">
+    <path d="M28 46c0-13 10-23 23-23h28c13 0 23 10 23 23v23c0 13-10 23-23 23H61l-21 16c-3 2-7 0-7-4V88c-4-4-5-11-5-19V46Z" fill="url(#bubble)"/>
+  </g>
+
+  <path d="M43 62l14 14 31-33" fill="none" stroke="url(#stroke)" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M44 38h36" stroke="#FFFFFF" stroke-opacity="0.58" stroke-width="5" stroke-linecap="round"/>
+  <path d="M32 103c14 7 35 10 57 1" stroke="#D8FFE2" stroke-opacity="0.18" stroke-width="5" stroke-linecap="round"/>
+</svg>

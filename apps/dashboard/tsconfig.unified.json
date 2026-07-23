@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false
+  },
+  "include": [
+    "src/unified/api.ts",
+    "src/unified/pages.tsx",
+    "src/unified/Shell.tsx",
+    "src/vite-env.d.ts"
+  ],
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"],
+  "references": []
+}
