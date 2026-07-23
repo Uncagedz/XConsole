@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 from pathlib import Path
+import re
+import uuid
 
-import traceback
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
@@ -32,6 +35,14 @@ NO_STORE_HEADERS = {
     "Pragma": "no-cache",
     "Expires": "0",
 }
+DEFAULT_CORS_ORIGINS = (
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://localhost:3000",
+)
+REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+LOGGER = logging.getLogger("xconsole.legacy")
 
 app = FastAPI(title="xConsole Command Center", version="1.0.0")
 
@@ -65,12 +76,55 @@ def _admin_index_html() -> str | None:
     return ADMIN_INDEX_HTML.replace("</head>", f"{_admin_bootstrap_script()}</head>")
 
 
-def _json_safe_error_payload(*, message: str, path: str, status_code: int | None = None, details: object | None = None) -> dict[str, object]:
+def _configured_cors_origins() -> list[str]:
+    raw = str(
+        os.getenv("CORS_ORIGINS")
+        or os.getenv("XCONSOLE_CORS_ORIGINS")
+        or ""
+    ).strip()
+    if not raw:
+        return list(DEFAULT_CORS_ORIGINS)
+
+    origins: list[str] = []
+    for item in raw.split(","):
+        origin = item.strip().rstrip("/")
+        if not origin:
+            continue
+        if origin == "*":
+            raise RuntimeError(
+                "Wildcard CORS origins are not allowed when credentials are enabled."
+            )
+        if not origin.startswith(("http://", "https://", "chrome-extension://")):
+            raise RuntimeError(f"Unsupported CORS origin: {origin}")
+        if origin not in origins:
+            origins.append(origin)
+    if not origins:
+        raise RuntimeError("At least one explicit CORS origin is required.")
+    return origins
+
+
+def _request_id(request: Request) -> str:
+    supplied = str(request.headers.get("x-request-id") or "").strip()
+    if REQUEST_ID_PATTERN.fullmatch(supplied):
+        return supplied
+    return uuid.uuid4().hex
+
+
+def _json_safe_error_payload(
+    *,
+    message: str,
+    path: str,
+    request_id: str,
+    status_code: int | None = None,
+    details: object | None = None,
+    error: str = "request_error",
+) -> dict[str, object]:
     payload: dict[str, object] = {
         "ok": False,
-        "error": "request_error",
+        "error": error,
         "message": message,
         "path": path,
+        "request_id": request_id,
     }
     if status_code is not None:
         payload["status_code"] = status_code
@@ -82,49 +136,67 @@ def _json_safe_error_payload(*, message: str, path: str, status_code: int | None
 @app.exception_handler(StarletteHTTPException)
 @app.exception_handler(HTTPException)
 async def _http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
-    message = str(exc.detail) if not isinstance(exc.detail, dict) else str(exc.detail.get("message", exc.detail))
-    details = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
+    status_code = int(getattr(exc, "status_code", 500))
+    request_id = _request_id(request)
+    if status_code >= 500:
+        message = "An unexpected error occurred."
+        details = None
+    else:
+        message = str(exc.detail) if not isinstance(exc.detail, dict) else str(exc.detail.get("message", exc.detail))
+        details = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
     return JSONResponse(
-        status_code=getattr(exc, "status_code", 500),
+        status_code=status_code,
         content=_json_safe_error_payload(
             message=message,
             path=str(request.url.path),
-            status_code=getattr(exc, "status_code", 500),
+            request_id=request_id,
+            status_code=status_code,
             details=details,
+            error="internal_server_error" if status_code >= 500 else "request_error",
         ),
+        headers={"X-Request-ID": request_id},
     )
 
 
 @app.exception_handler(RequestValidationError)
 async def _validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    request_id = _request_id(request)
     return JSONResponse(
         status_code=422,
         content=_json_safe_error_payload(
             message="Request validation failed.",
             path=str(request.url.path),
+            request_id=request_id,
             status_code=422,
             details=exc.errors(),
         ),
+        headers={"X-Request-ID": request_id},
     )
 
 
 @app.exception_handler(Exception)
 async def _global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    traceback.print_exc()
+    request_id = _request_id(request)
+    LOGGER.error(
+        "Unhandled legacy request failure",
+        extra={"request_id": request_id, "request_path": str(request.url.path)},
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
     return JSONResponse(
         status_code=500,
-        content={
-            "ok": False,
-            "error": "internal_server_error",
-            "message": str(exc) or "An unexpected error occurred.",
-            "path": str(request.url.path),
-            "type": exc.__class__.__name__,
-        },
+        content=_json_safe_error_payload(
+            message="An unexpected error occurred.",
+            path=str(request.url.path),
+            request_id=request_id,
+            status_code=500,
+            error="internal_server_error",
+        ),
+        headers={"X-Request-ID": request_id},
     )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_configured_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

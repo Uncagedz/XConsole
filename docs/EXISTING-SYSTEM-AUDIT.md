@@ -66,9 +66,9 @@ Severity is relative to this personal system, not to a public SaaS product.
 | Resolved in Phase 1 hardening | Fixed admin credentials were injected into HTML | The fixed bootstrap value was removed from both legacy copies; the compatibility header is present only when explicit environment credentials are configured | Keep the legacy adapter local and prefer authenticated gateway sessions |
 | Resolved in Phase 1 hardening | Default Basic credentials existed in server code | Missing environment credentials now create no admin and no Basic header; session signing uses an ephemeral process secret unless explicitly configured | Set unique secrets only when the legacy adapter is intentionally enabled |
 | High | API routes are broadly exempted from the top-level auth middleware | `/api/*` is passed through in `app/main.py`; enforcement is inconsistent at handler level | Put authenticated gateway routes in front of the adapter |
-| High | CORS allows `*` with credentials | `app/main.py` | Replace with explicit dashboard/extension origins |
+| Resolved in Phase 1 hardening | CORS allowed `*` with credentials | Both legacy service copies now accept only configured HTTP(S)/Chrome-extension origins and reject wildcard configuration | Keep production `CORS_ORIGINS` limited to deployed dashboard and authorized extension origins |
 | High | Selenium and browser profiles are designed to run in the cloud container | Root Docker/Railway path | Move browser execution to Local Agent; retain cloud-safe parsing/import routes only |
-| Medium | Raw exception messages are returned to callers | Global handler includes exception type/message | Return request IDs and sanitized errors; keep full details in structured logs |
+| Resolved in Phase 1 hardening | Raw exception messages were returned to callers | Legacy 500 responses now contain a generic message and request ID; full exceptions are correlated in server logs | Monitor request IDs without returning stack, type, or dependency details to clients |
 | Medium | File-backed state has no concurrency or durability contract | Multiple JSON/status paths | Normalize into PostgreSQL while keeping files as a compatibility cache |
 | Medium | Portal selectors and automation are embedded in a large API module | `app/api.py` | Wrap first, then extract connector by connector |
 

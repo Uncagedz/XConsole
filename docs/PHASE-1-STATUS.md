@@ -28,6 +28,8 @@ Status date: 2026-07-23
 - Docker Compose, Railway service definitions, GitHub Actions CI, and seven
   disabled n8n workflow exports
 - Secret/PII ignore policy and repository scanner
+- Explicit legacy CORS allowlists plus request-ID-correlated, sanitized 500
+  responses
 - Original FastAPI/dashboard tools retained for rollback compatibility
 
 ## Connector truth table
@@ -56,7 +58,7 @@ run during this phase.
 - `pnpm typecheck`: passed
 - `pnpm lint`: passed (warnings only in preserved imported code)
 - `pnpm test`: 91 tests passed
-- `python -m pytest -q`: 82 tests passed
+- `python -m pytest -q`: 86 tests passed
 - `pnpm build`: passed for all 14 workspace projects
 - `pnpm security:check`: passed across 479 tracked and pending files
 - Prisma validate and client generation: passed
