@@ -130,7 +130,7 @@ export function InventoryPage() {
           </label>
           <label><span>Condition</span><select value={condition} onChange={(event) => setCondition(event.target.value as InventoryCondition)}><option value="all">All inventory</option><option value="new">New</option><option value="used">Used / certified</option></select></label>
           <label><span>Photos</span><select value={photoFilter} onChange={(event) => setPhotoFilter(event.target.value as InventoryPhotoFilter)}><option value="all">All photo states</option><option value="with-photos">Photo ready</option><option value="needs-photos">Needs photos</option></select></label>
-          <label><span>Sort</span><select value={sort} onChange={(event) => setSort(event.target.value as InventorySort)}><option value="recent">Recently synchronized</option><option value="price-low">Price: low to high</option><option value="price-high">Price: high to low</option><option value="mileage-low">Mileage: low to high</option><option value="title">Vehicle name</option></select></label>
+          <label><span>Sort</span><select value={sort} onChange={(event) => setSort(event.target.value as InventorySort)}><option value="recent">Recently synchronized</option><option value="ltv-low">LTV: low to high</option><option value="price-low">Price: low to high</option><option value="price-high">Price: high to low</option><option value="mileage-low">Mileage: low to high</option><option value="title">Vehicle name</option></select></label>
         </div>
         <div className="ux-results-heading"><strong>{vehicles.length.toLocaleString()} vehicles</strong><span>{query || condition !== 'all' || photoFilter !== 'all' ? `filtered from ${inventory.count.toLocaleString()}` : 'showing all available records'}</span></div>
         {vehicles.length > 0
@@ -152,6 +152,8 @@ export function InventoryPage() {
                 <div className="ux-vehicle-facts">
                   <span>{vehicle.mileage === null ? 'Mileage unavailable' : `${vehicle.mileage.toLocaleString()} mi`}</span>
                   <span>Stock {vehicle.stockNumber ?? '—'}</span>
+                  <span>JD Trade {money(vehicle.jdPowerTradeIn ?? null)}</span>
+                  <span>LTV {vehicle.loanToValue === null || vehicle.loanToValue === undefined ? '—' : `${vehicle.loanToValue.toFixed(2)}%`}</span>
                 </div>
                 <code>{vehicle.vin}</code>
                 <div className="ux-card-footer">
@@ -198,12 +200,16 @@ export function VehiclePage() {
               <dt>Drivetrain</dt><dd>{vehicle.drivetrain ?? '—'}</dd>
               <dt>Engine</dt><dd>{vehicle.engine ?? '—'}</dd>
               <dt>Transmission</dt><dd>{vehicle.transmission ?? '—'}</dd>
+              <dt>JD Power trade-in</dt><dd>{money(vehicle.jdPowerTradeIn ?? null)}</dd>
+              <dt>LTV basis</dt><dd>{money(vehicle.ltvBasis ?? null)}</dd>
+              <dt>Loan to value</dt><dd>{vehicle.loanToValue === null || vehicle.loanToValue === undefined ? '—' : `${vehicle.loanToValue.toFixed(2)}%`}</dd>
             </dl>
             {vehicle.websiteUrl && <a className="ux-primary-link" href={vehicle.websiteUrl} target="_blank" rel="noreferrer">Open dealership listing ↗</a>}
           </div>
         </div>
         <div className="ux-metrics">
           <article><span>Retail price</span><strong>{money(vehicle.retailPrice)}</strong><small>{vehicle.daysInStock ?? '—'} days in stock</small></article>
+          <article><span>JD Power trade-in</span><strong>{money(vehicle.jdPowerTradeIn ?? null)}</strong><small>{vehicle.loanToValue === null || vehicle.loanToValue === undefined ? 'LTV unavailable' : `${vehicle.loanToValue.toFixed(2)}% LTV`}</small></article>
           <article><span>Website photos</span><strong>{vehicle.photos.length}</strong><small>{vehicle.status ?? 'availability unknown'}</small></article>
           <article><span>Sources</span><strong>{vehicle.sourceStatuses.length}</strong><small>last {dateTime(vehicle.lastSynchronizedAt)}</small></article>
         </div>
@@ -212,6 +218,88 @@ export function VehiclePage() {
         </div></div>
         <div className="ux-panel"><h2>Recommended talking points</h2><ul>{vehicle.salesTalkingPoints.map((point) => <li key={point}>{point}</li>)}</ul></div>
       </>}
+    </Page>
+  );
+}
+
+export function BankBrainPage() {
+  const [status, setStatus] = useState<Awaited<ReturnType<typeof gateway.valuationStatus>> | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  async function loadStatus() {
+    setError('');
+    try {
+      setStatus(await gateway.valuationStatus());
+    } catch (value) {
+      setError(value instanceof Error ? value.message : String(value));
+    }
+  }
+
+  useEffect(() => {
+    void loadStatus();
+  }, []);
+
+  async function upload() {
+    if (!file) return;
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const next = await gateway.uploadValuations(file);
+      setStatus(next);
+      setFile(null);
+      setMessage(`${next.count.toLocaleString()} JD Power trade-in values are active for VIN-based LTV calculations.`);
+    } catch (value) {
+      setError(value instanceof Error ? value.message : String(value));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Page title="Bank Brain" eyebrow="JD Power valuation and LTV">
+      {error && <div className="ux-warning"><strong>Valuation error</strong><span>{error}</span></div>}
+      {message && <div className="ux-success">{message}</div>}
+      <div className="ux-metrics">
+        <article>
+          <span>JD Power values</span>
+          <strong>{status?.count?.toLocaleString() ?? '—'}</strong>
+          <small>{status?.source_file ?? 'No valuation file loaded'}</small>
+        </article>
+        <article>
+          <span>Last updated</span>
+          <strong>{status?.updated_at ? new Date(status.updated_at).toLocaleDateString() : '—'}</strong>
+          <small>{status?.updated_at ? new Date(status.updated_at).toLocaleString() : 'Upload an XLS or XLSX file'}</small>
+        </article>
+        <article>
+          <span>LTV formula</span>
+          <strong>Amount financed ÷ JD trade</strong>
+          <small>Inventory price + $2,400 fees + 6% tax, divided by JD Power trade-in</small>
+        </article>
+      </div>
+      <div className="ux-panel">
+        <h2>Load JD Power trade-in values</h2>
+        <p>VINs are matched automatically. The source workbook stays private; only the normalized valuation data is stored on the protected Railway volume.</p>
+        <div className="ux-actions">
+          <input
+            type="file"
+            accept=".xls,.xlsx,.xlsm"
+            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+          />
+          <button className="primary" type="button" disabled={!file || busy} onClick={() => void upload()}>
+            {busy ? 'Loading valuations…' : 'Load JD Power values'}
+          </button>
+          <button type="button" disabled={busy} onClick={() => void loadStatus()}>Refresh status</button>
+        </div>
+        {file && <p className="ux-muted">Ready: {file.name}</p>}
+      </div>
+      <div className="ux-panel">
+        <h2>Cox Automotive / desk workflow</h2>
+        <p>Open Inventory and sort by LTV. Each matched VIN now shows JD Power trade-in, LTV basis, and calculated loan-to-value for deal structuring.</p>
+      </div>
     </Page>
   );
 }

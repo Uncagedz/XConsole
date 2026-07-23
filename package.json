@@ -13,7 +13,7 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "pnpm -r --if-present lint",
     "pretest": "pnpm run pretypecheck",
-    "test": "pnpm -r --if-present test",
+    "test": "node --test tools/*.test.mjs && pnpm -r --if-present test",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "security:check": "node scripts/check-no-secrets.mjs",
     "dev": "concurrently -n gateway,dashboard,agent \"pnpm --filter @xconsole/gateway-api dev\" \"pnpm --filter @xconsole/dashboard dev\" \"pnpm --filter @xconsole/local-agent dev\"",

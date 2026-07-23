@@ -68,7 +68,7 @@ INVENTORY_LIVE_META_PATH = DATA_DIR / "latest" / "inventory_dealership_live_meta
 INVENTORY_LIVE_BACKUP_PATH = DATA_DIR / "latest" / "inventory_dealership_live.backup.json"
 INVENTORY_LIVE_META_BACKUP_PATH = DATA_DIR / "latest" / "inventory_dealership_live_meta.backup.json"
 INVENTORY_MANUAL_PATH = DATA_DIR / "latest" / "inventory_manual.json"
-JD_POWER_VALUATIONS_PATH = DATA_DIR / "latest" / "jd_power_trade_values.json"
+JD_POWER_VALUATIONS_LEGACY_PATH = DATA_DIR / "latest" / "jd_power_trade_values.json"
 DEFAULT_DEALERSHIP_INVENTORY_URL = "https://www.tavernachryslerdodgejeepramfiat.com/used-inventory/index.htm"
 DEFAULT_DEALERSHIP_NEW_INVENTORY_URL = "https://www.tavernachryslerdodgejeepramfiat.com/new-inventory/index.htm"
 DEFAULT_DEALERSHIP_LIFTED_TRUCKS_URL = "https://www.tavernachryslerdodgejeepramfiat.com/lifted-trucks.htm"
@@ -101,6 +101,9 @@ BANK_DOCS_GENERATED_INDEX_PATH = DATA_DIR / "routeone_docs.decoded_index.generat
 BANK_DOCS_LINK_CACHE_DIR = RUNTIME_DIR / "routeone_docs" / "linked_cache"
 XCONSOLE_STATE_DIR = Path(
     os.getenv("XCONSOLE_STATE_DIR", str(BANK_DOCS_ROOT / "_xconsole"))
+).resolve()
+JD_POWER_VALUATIONS_PATH = Path(
+    os.getenv("JD_POWER_VALUATIONS_PATH", str(XCONSOLE_STATE_DIR / "jd_power_trade_values.json"))
 ).resolve()
 DEALERSHIPS_CONFIG_PATH = XCONSOLE_STATE_DIR / "dealerships.json"
 LEADS_PATH = DATA_DIR / "post_lead" / "leads.json"

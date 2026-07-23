@@ -2,7 +2,7 @@ import type { Vehicle } from '@drivecentric-ai/shared/xconsole';
 
 export type InventoryCondition = 'all' | 'new' | 'used';
 export type InventoryPhotoFilter = 'all' | 'with-photos' | 'needs-photos';
-export type InventorySort = 'recent' | 'price-low' | 'price-high' | 'mileage-low' | 'title';
+export type InventorySort = 'recent' | 'ltv-low' | 'price-low' | 'price-high' | 'mileage-low' | 'title';
 
 export interface InventoryFilters {
   query: string;
@@ -43,6 +43,7 @@ export function filterAndSortInventory(items: Vehicle[], filters: InventoryFilte
       return searchable.includes(query);
     })
     .sort((left, right) => {
+      if (filters.sort === 'ltv-low') return (left.loanToValue ?? Number.POSITIVE_INFINITY) - (right.loanToValue ?? Number.POSITIVE_INFINITY);
       if (filters.sort === 'price-low') return (left.retailPrice ?? Number.POSITIVE_INFINITY) - (right.retailPrice ?? Number.POSITIVE_INFINITY);
       if (filters.sort === 'price-high') return (right.retailPrice ?? -1) - (left.retailPrice ?? -1);
       if (filters.sort === 'mileage-low') return (left.mileage ?? Number.POSITIVE_INFINITY) - (right.mileage ?? Number.POSITIVE_INFINITY);
