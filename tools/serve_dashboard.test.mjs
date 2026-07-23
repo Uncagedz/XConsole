@@ -11,8 +11,10 @@ test('dashboard serves the SPA and proxies API requests to the runtime gateway',
   const dashboardRoot = await mkdtemp(join(tmpdir(), 'xconsole-dashboard-'));
   await writeFile(join(dashboardRoot, 'index.html'), '<!doctype html><title>XConsole</title>', 'utf8');
 
+  let loginOrigin;
   const gateway = createServer((request, response) => {
     if (request.url === '/api/session') {
+      if (request.method === 'POST') loginOrigin = request.headers.origin;
       response.writeHead(401, {
         'Content-Type': 'application/json',
         'Set-Cookie': 'xconsole_session=test; HttpOnly; Path=/',
@@ -72,6 +74,17 @@ test('dashboard serves the SPA and proxies API requests to the runtime gateway',
     assert.equal(session.status, 401);
     assert.match(session.headers.get('set-cookie') ?? '', /xconsole_session=test/);
     assert.deepEqual(await session.json(), { error: { type: 'authentication' } });
+
+    const login = await fetch(`http://127.0.0.1:${dashboardPort}/api/session`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: 'https://aniextension.up.railway.app',
+      },
+      body: JSON.stringify({ token: 'test-dashboard-token-value' }),
+    });
+    assert.equal(login.status, 401);
+    assert.equal(loginOrigin, undefined);
 
     const spa = await fetch(`http://127.0.0.1:${dashboardPort}/inventory`);
     assert.equal(spa.status, 200);

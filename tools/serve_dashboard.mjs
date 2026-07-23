@@ -67,6 +67,7 @@ function proxyApi(request, response) {
 
   const headers = { ...request.headers };
   for (const header of hopByHopHeaders) delete headers[header];
+  delete headers.origin;
   headers.host = target.host;
   headers['x-forwarded-host'] = request.headers.host ?? '';
   headers['x-forwarded-proto'] = 'https';
