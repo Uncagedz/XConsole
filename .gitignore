@@ -38,3 +38,39 @@ automation/facebook-marketplace-lister/chrome-*/
 automation/facebook-marketplace-lister/chrome-profile*/
 automation/offerup-lister/chrome-profile*/
 auth/
+
+# XConsole Local Agent and browser authentication state
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+data/facebook_session_cookies.json
+**/*cookies*.json
+**/*storage-state*.json
+**/*storage_state*.json
+**/browser-profile/
+**/browser-profiles/
+**/chrome-profile/
+**/chrome-profiles/
+**/playwright/.auth/
+**/auth-state/
+**/recordings/
+**/screenshots/
+**/html-snapshots/
+**/failure-artifacts/
+**/downloads/
+**/report-downloads/
+**/*.har
+
+# Local databases and generated clients
+*.db
+*.db-journal
+packages/database/generated/
+
+# Private dealership/customer exports
+**/credit-reports/
+**/credit-applications/
+**/customer-exports/
+**/vendor-reports/
