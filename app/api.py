@@ -4063,9 +4063,13 @@ def _fetch_live_inventory_records(*, source_url: str, timeout_seconds: int) -> d
     # Direct raw HTML from Dealer.com can show only a rendered shell. Treat a
     # tiny direct result as weak and continue to fallbacks.
     try:
-        min_direct_records = int(os.getenv("DEALERSHIP_INVENTORY_MIN_DIRECT_RECORDS", "20") or "20")
+        # Dealer.com's HTML bootstrap currently exposes only the first page
+        # (roughly 27 normalized vehicles) even when the visible result count
+        # is in the hundreds. Treat that as a partial response so the browser
+        # inventory API can paginate the complete feed.
+        min_direct_records = int(os.getenv("DEALERSHIP_INVENTORY_MIN_DIRECT_RECORDS", "100") or "100")
     except ValueError:
-        min_direct_records = 20
+        min_direct_records = 100
 
     should_fallback = len(normalized) < min_direct_records
 
