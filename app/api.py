@@ -4383,7 +4383,11 @@ def _sync_live_inventory(
     # The sources are independent. Fetching them concurrently keeps a
     # three-page dealership refresh within the request budget instead of
     # multiplying that budget by the number of feeds.
-    max_workers = min(3, max(1, len(target_sources)))
+    try:
+        configured_source_workers = int(os.getenv("DEALERSHIP_INVENTORY_SOURCE_WORKERS", "2") or "2")
+    except ValueError:
+        configured_source_workers = 2
+    max_workers = min(max(1, configured_source_workers), 3, max(1, len(target_sources)))
     with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="inventory-source") as executor:
         results = list(executor.map(fetch_source, target_sources))
 
@@ -6502,7 +6506,11 @@ def _fetch_inventory_listing_pages_via_http(
     records: list[dict[str, Any]] = []
     seen: set[str] = set()
     unique_starts = sorted({max(0, int(start)) for start in starts})
-    max_workers = min(6, max(1, len(unique_starts)))
+    try:
+        configured_workers = int(os.getenv("DEALERSHIP_INVENTORY_PAGE_WORKERS", "2") or "2")
+    except ValueError:
+        configured_workers = 2
+    max_workers = min(max(1, configured_workers), 4, max(1, len(unique_starts)))
     notes.append(f"http_inventory_pages_planned={len(unique_starts)}")
     notes.append(f"http_inventory_workers={max_workers}")
 

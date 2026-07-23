@@ -665,7 +665,7 @@ def test_sync_live_inventory_persists_when_items_exist(monkeypatch, tmp_path):
     assert stored[0]["vin"] == "WP0AA2A90LS654321"
 
 
-def test_sync_live_inventory_fetches_multiple_sources_concurrently(monkeypatch):
+def test_sync_live_inventory_bounds_source_concurrency(monkeypatch):
     sources = [
         "https://dealer.example/used",
         "https://dealer.example/new",
@@ -700,7 +700,7 @@ def test_sync_live_inventory_fetches_multiple_sources_concurrently(monkeypatch):
     )
 
     assert payload["source_urls"] == sources
-    assert maximum_active == 3
+    assert maximum_active == 2
 
 
 def test_ws_inventory_requests_larger_pages(monkeypatch):
