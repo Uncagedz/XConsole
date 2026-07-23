@@ -31,7 +31,6 @@ if (serviceName.includes('ai-api')) {
     '--filter',
     '@xconsole/dashboard',
     'preview',
-    '--',
     '--host',
     '0.0.0.0',
     '--port',

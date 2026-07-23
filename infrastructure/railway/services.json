@@ -1,6 +1,6 @@
 {
   "services": [
-    {"name":"xconsole-dashboard","kind":"application","workspace":"@xconsole/dashboard","healthcheck":"/","start":"pnpm --filter @xconsole/dashboard preview -- --host 0.0.0.0 --port $PORT"},
+    {"name":"xconsole-dashboard","kind":"application","workspace":"@xconsole/dashboard","healthcheck":"/","start":"pnpm --filter @xconsole/dashboard preview --host 0.0.0.0 --port $PORT"},
     {"name":"xconsole-gateway-api","kind":"application","workspace":"@xconsole/gateway-api","healthcheck":"/health","start":"pnpm --filter @xconsole/gateway-api start"},
     {"name":"xconsole-ai-api","kind":"application","workspace":"@xconsole/ai-api","healthcheck":"/health","start":"pnpm --filter @xconsole/ai-api start"},
     {"name":"xconsole-postgres","kind":"postgres"},
