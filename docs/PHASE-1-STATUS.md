@@ -58,18 +58,22 @@ run during this phase.
 - `pnpm test`: 91 tests passed
 - `python -m pytest -q`: 80 tests passed
 - `pnpm build`: passed for all 14 workspace projects
-- `pnpm security:check`: passed across 474 tracked and pending files
+- `pnpm security:check`: passed across 478 tracked and pending files
 - Prisma validate and client generation: passed
+- `pnpm db:deploy`: passed against PostgreSQL 16 in GitHub Actions
 - Gateway health and auth smoke: passed
 - Real Local Agent DPAPI registration/startup/heartbeat smoke: passed; temporary
   encrypted config and processes were removed
+- Full GitHub Actions validation passed in
+  [run 30032653958](https://github.com/Uncagedz/Xconsole-Dealership-Tool/actions/runs/30032653958)
 
 ## External validation still required
 
-- Migration deployment was not executed locally because this workstation has
-  no Docker, PostgreSQL server, or listener on port 5432. The schema and SQL
-  migration validate and generate successfully. Run `pnpm db:deploy` against
-  the provisioned PostgreSQL service before release.
+- Migration deployment was not executed on the workstation because it has no
+  Docker, PostgreSQL server, or listener on port 5432. The complete migration
+  chain deployed successfully against the PostgreSQL 16 service in GitHub
+  Actions. Run `pnpm db:deploy` again against the provisioned production
+  PostgreSQL service during release.
 - No authenticated external portal was used. The user must supply reviewed,
   sanitized recordings for each skeleton listed in `MIGRATION-PLAN.md`.
 - Railway services, Redis, n8n credentials, and production origins/tokens must
