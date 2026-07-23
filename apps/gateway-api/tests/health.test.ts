@@ -103,4 +103,54 @@ describe('gateway API', () => {
     expect(devices.body.items[0].lastHeartbeat.status).toBe('online');
     expect(devices.body.items[0].deviceToken).toBeUndefined();
   });
+
+  it('queues VIN lookups for ReconVision and 1Micro and exposes job status', async () => {
+    const app = createApp(env);
+    const dashboardAuthorization = `Bearer ${env.XCONSOLE_API_TOKEN}`;
+    const queued = await request(app)
+      .post('/api/vehicles/1HGCM82633A004352/source-lookups')
+      .set('authorization', dashboardAuthorization)
+      .send({ connectorIds: ['reconvision', 'onemicro'] });
+    expect(queued.status).toBe(202);
+    expect(queued.body.jobs).toHaveLength(2);
+    expect(queued.body.jobs[0].payload.vin).toBe('1HGCM82633A004352');
+
+    const pending = await request(app)
+      .get(`/api/automation/jobs/${queued.body.jobs[0].id}`)
+      .set('authorization', dashboardAuthorization);
+    expect(pending.body.job.status).toBe('pending');
+
+    const registration = await request(app).post('/api/devices/register').send({
+      name: 'Synthetic Lookup Agent',
+      platform: 'windows',
+      registrationCode: env.XCONSOLE_DEVICE_REGISTRATION_CODE,
+      capabilities: ['playwright'],
+    });
+    const deviceAuthorization = `Device ${registration.body.deviceToken}`;
+    const leased = await request(app)
+      .post('/api/agent/jobs/lease')
+      .set('authorization', deviceAuthorization)
+      .send({});
+    expect(leased.body.job.operation).toBe('lookup-vin');
+
+    await request(app)
+      .post(`/api/agent/jobs/${leased.body.job.id}/complete`)
+      .set('authorization', deviceAuthorization)
+      .send({
+        success: true,
+        result: {
+          connectorId: leased.body.job.connectorId,
+          vin: '1HGCM82633A004352',
+          fields: { stage: 'Mechanical' },
+          summary: 'Synthetic reviewed result',
+        },
+      })
+      .expect(200);
+
+    const completed = await request(app)
+      .get(`/api/automation/jobs/${leased.body.job.id}`)
+      .set('authorization', dashboardAuthorization);
+    expect(completed.body.job.status).toBe('succeeded');
+    expect(completed.body.job.result.summary).toBe('Synthetic reviewed result');
+  });
 });

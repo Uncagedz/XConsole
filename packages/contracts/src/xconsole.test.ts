@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { connectorSyncResultSchema, vinSchema } from './xconsole.js';
+import { automationJobStatusSchema, connectorSyncResultSchema, vinSchema } from './xconsole.js';
 
 describe('XConsole contracts', () => {
   it('normalizes and validates a VIN', () => {
@@ -39,5 +39,23 @@ describe('XConsole contracts', () => {
         retryCount: 0,
       }),
     ).toThrow();
+  });
+
+  it('validates dashboard-visible automation job status', () => {
+    const job = automationJobStatusSchema.parse({
+      id: 'job-1',
+      connectorId: 'reconvision',
+      operation: 'lookup-vin',
+      status: 'succeeded',
+      payload: { vin: '1HGCM82633A004352' },
+      result: { fields: { stage: 'Mechanical' } },
+      error: null,
+      attemptCount: 1,
+      maxAttempts: 3,
+      createdAt: '2026-07-23T12:00:00.000Z',
+      startedAt: '2026-07-23T12:00:01.000Z',
+      finishedAt: '2026-07-23T12:00:02.000Z',
+    });
+    expect(job.status).toBe('succeeded');
   });
 });

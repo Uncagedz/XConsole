@@ -6,7 +6,9 @@ import {
   DashboardPage,
   BankBrainPage,
   InventoryPage,
+  MessengerPage,
   PartialPage,
+  SettingsPage,
   VehiclePage,
 } from './unified/pages';
 import { UnifiedShell } from './unified/Shell';
@@ -24,6 +26,7 @@ export const requiredRoutes = [
   '/customers/:id',
   '/tasks',
   '/marketplace',
+  '/messenger',
   '/bank-brain',
   '/connectors',
   '/connectors/:connectorId',
@@ -42,10 +45,11 @@ export const router = createBrowserRouter(
         <Route path="customers/:id" element={<PartialPage title="Customer" description="Customer timeline, objections, trade, appointment, priority, and AI draft fields are represented in the normalized schema." />} />
         <Route path="tasks" element={<PartialPage title="Tasks" description="Priority and approval tasks are ready for workflow-created opportunities and alerts." />} />
         <Route path="marketplace" element={<PartialPage title="Marketplace" description="Facebook draft/live behavior is preserved behind an approval-gated Local Agent connector; Craigslist and OfferUp are recording skeletons." />} />
+        <Route path="messenger" element={<MessengerPage />} />
         <Route path="bank-brain" element={<BankBrainPage />} />
         <Route path="connectors" element={<ConnectorsPage />} />
         <Route path="connectors/:connectorId" element={<ConnectorDetailPage />} />
-        <Route path="settings" element={<PartialPage title="Settings" description="Device registration, connector enablement, and environment-backed service configuration belong here." />} />
+        <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route
         path="/legacy/*"

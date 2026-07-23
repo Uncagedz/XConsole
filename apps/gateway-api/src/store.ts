@@ -1,5 +1,12 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import type { AgentHeartbeat, AutomationJob, ConnectorSummary, LeadContextIngest, Vehicle } from '@drivecentric-ai/shared';
+import type {
+  AgentHeartbeat,
+  AutomationJob,
+  AutomationJobStatus,
+  ConnectorSummary,
+  LeadContextIngest,
+  Vehicle,
+} from '@drivecentric-ai/shared';
 import { connectorSeeds, vehicleSeeds } from './seed-data.js';
 
 export type MaybePromise<T> = T | Promise<T>;
@@ -16,6 +23,7 @@ export interface DeviceRecord {
 }
 
 export interface GatewayStoreContract {
+  initialize?(): Promise<void>;
   listConnectors(): MaybePromise<ConnectorSummary[]>;
   getConnector(id: string): MaybePromise<ConnectorSummary | undefined>;
   updateConnector(id: string, patch: Partial<Pick<ConnectorSummary, 'enabled'>>): MaybePromise<ConnectorSummary | undefined>;
@@ -26,7 +34,13 @@ export interface GatewayStoreContract {
   authenticateDevice(token: string): MaybePromise<{ id: string } | undefined>;
   listDevices(): MaybePromise<Array<{ id: string; name: string; lastHeartbeat?: AgentHeartbeat }>>;
   heartbeat(deviceId: string, heartbeat: AgentHeartbeat): MaybePromise<boolean>;
-  createJob(connectorId: string, operation: string, approvalRequired: boolean): MaybePromise<AutomationJob>;
+  createJob(
+    connectorId: string,
+    operation: string,
+    approvalRequired: boolean,
+    payload?: Record<string, unknown>,
+  ): MaybePromise<AutomationJob>;
+  getJob(jobId: string): MaybePromise<AutomationJobStatus | undefined>;
   leaseJob(): MaybePromise<AutomationJob | null>;
   completeJob(jobId: string, success: boolean, result: unknown): MaybePromise<boolean>;
   ingestDriveCentric(context: LeadContextIngest): MaybePromise<{ stored: boolean; totalContexts: number }>;
@@ -37,7 +51,7 @@ export class GatewayStore implements GatewayStoreContract {
   private connectors = structuredClone(connectorSeeds);
   private vehicles = structuredClone(vehicleSeeds);
   private devices = new Map<string, DeviceRecord>();
-  private jobs: AutomationJob[] = [];
+  private jobs = new Map<string, { lease: AutomationJob; status: AutomationJobStatus }>();
   private driveCentricContexts: LeadContextIngest[] = [];
 
   listConnectors() {
@@ -103,30 +117,67 @@ export class GatewayStore implements GatewayStoreContract {
     return true;
   }
 
-  createJob(connectorId: string, operation: string, approvalRequired: boolean) {
+  createJob(
+    connectorId: string,
+    operation: string,
+    approvalRequired: boolean,
+    payload: Record<string, unknown> = {},
+  ) {
     const now = new Date();
     const job: AutomationJob = {
       id: randomUUID(),
       connectorId,
       operation,
-      payload: {},
+      payload,
       approvalStatus: approvalRequired ? 'required' : 'not-required',
       leaseExpiresAt: now.toISOString(),
       idempotencyKey: randomUUID(),
     };
-    this.jobs.push(job);
+    this.jobs.set(job.id, {
+      lease: job,
+      status: {
+        id: job.id,
+        connectorId,
+        operation,
+        status: approvalRequired ? 'approval-required' : 'pending',
+        payload,
+        result: null,
+        error: null,
+        attemptCount: 0,
+        maxAttempts: 3,
+        createdAt: now.toISOString(),
+        startedAt: null,
+        finishedAt: null,
+      },
+    });
     return job;
+  }
+
+  getJob(jobId: string) {
+    return this.jobs.get(jobId)?.status;
   }
 
   leaseJob() {
-    const job = this.jobs.find((candidate) => candidate.approvalStatus !== 'required');
-    if (!job) return null;
-    this.jobs = this.jobs.filter((candidate) => candidate.id !== job.id);
-    job.leaseExpiresAt = new Date(Date.now() + 60_000).toISOString();
-    return job;
+    const stored = [...this.jobs.values()].find((candidate) => candidate.status.status === 'pending');
+    if (!stored) return null;
+    const now = new Date();
+    stored.lease.leaseExpiresAt = new Date(now.getTime() + 60_000).toISOString();
+    stored.status.status = 'leased';
+    stored.status.startedAt = now.toISOString();
+    stored.status.attemptCount += 1;
+    return stored.lease;
   }
 
-  completeJob(_jobId: string, _success: boolean, _result: unknown) {
+  completeJob(jobId: string, success: boolean, result: unknown) {
+    const stored = this.jobs.get(jobId);
+    if (!stored) return false;
+    stored.status.status = success ? 'succeeded' : 'failed';
+    stored.status.finishedAt = new Date().toISOString();
+    const record = typeof result === 'object' && result !== null && !Array.isArray(result)
+      ? result as Record<string, unknown>
+      : { value: result };
+    if (success) stored.status.result = record;
+    else stored.status.error = record;
     return true;
   }
 

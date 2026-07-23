@@ -6,10 +6,10 @@ export const reconvisionConnector = createSkeletonConnector({
   metadata: {
     id: 'reconvision',
     displayName: 'ReconVision',
-    description: 'Recon stage and open-work connector skeleton.',
+    description: 'Recon stage and open-work lookup through an authorized Local Agent browser session.',
     capabilities: ['read'],
     executionLocation: 'local-agent',
-    mode: 'skeleton',
+    mode: 'recording',
     approvalRequiredForWrites: true,
   },
   configSchema: z.object({ mode: z.enum(['fixture', 'recording']).default('recording'), recordingPath: z.string().optional() }),

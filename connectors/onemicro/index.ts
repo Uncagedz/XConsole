@@ -6,10 +6,10 @@ export const onemicroConnector = createSkeletonConnector({
   metadata: {
     id: 'onemicro',
     displayName: '1Micro',
-    description: 'Vehicle key-location and key-holder connector skeleton.',
+    description: 'Vehicle key-location and key-holder lookup through an authorized Local Agent browser session.',
     capabilities: ['read'],
     executionLocation: 'local-agent',
-    mode: 'skeleton',
+    mode: 'recording',
     approvalRequiredForWrites: true,
   },
   configSchema: z.object({ mode: z.enum(['fixture', 'recording']).default('recording'), recordingPath: z.string().optional() }),

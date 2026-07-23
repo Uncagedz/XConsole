@@ -11,3 +11,8 @@ export const agentConfigPath = join(agentDataDirectory, 'agent-config.dpapi');
 export const browserProfileDirectory = join(agentDataDirectory, 'browser-profile');
 export const recordingsDirectory = join(agentDataDirectory, 'recordings');
 export const failureArtifactsDirectory = join(agentDataDirectory, 'failures');
+
+export function portalProfileDirectory(connectorId: string) {
+  if (!/^[a-z0-9-]+$/.test(connectorId)) throw new Error('Invalid portal connector ID');
+  return join(agentDataDirectory, 'portal-profiles', connectorId);
+}

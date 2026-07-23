@@ -140,6 +140,13 @@ n8n orchestrates schedules and calls authenticated gateway endpoints. It does no
 - No automation bypasses MFA, CAPTCHA, access controls, or vendor restrictions.
 - Authentication challenges return `reauthenticationRequired: true`.
 - Recording output defaults outside Git, strips password inputs, sensitive input values, inline tokens, authorization-like text, cookies, and storage state.
+- ReconVision and 1Micro each use a separate persistent Chrome profile under
+  the Windows Local Agent data directory. Login/MFA is always visible and
+  manual. After reviewed URLs/selectors are configured, read-only VIN jobs may
+  reuse the authenticated profile headlessly.
+- Facebook Messenger is opened as a dedicated browser window from the dashboard.
+  It is not placed in an iframe because Facebook blocks secure account pages
+  from third-party framing, and XConsole never receives its credentials/cookies.
 
 ### Deployment boundaries
 

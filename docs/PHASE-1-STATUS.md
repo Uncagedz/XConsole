@@ -39,6 +39,13 @@ Status date: 2026-07-23
   granting user administration
 - Explicit Chrome-extension CORS allowlist and validated connector state changes
 - Original FastAPI/dashboard tools retained for rollback compatibility
+- Runtime dashboard API proxy, restored `aniextension.up.railway.app` domain,
+  persistent JD Power valuation storage, and VIN-level LTV display
+- ReconVision and 1Micro queued VIN-lookup pipeline with dashboard polling,
+  persistent job results, normalized recon/key history, separate Local Agent
+  browser profiles, manual login/MFA, and headless routine execution
+- Dedicated dashboard Messenger workspace that opens Messenger in a reusable
+  browser window without proxying Facebook credentials or cookies through XConsole
 
 ## Connector truth table
 
@@ -49,8 +56,8 @@ Status date: 2026-07-23
 | DriveCentric | Wrapped | 24 extension parser tests + normalized ingestion fixture | Read/ingest fixture-tested; no automatic sending |
 | RouteOne / Bank Brain | Wrapped | Existing import/rebuild boundaries + fixture test | Not portal-tested; review required |
 | vAuto | Skeleton | Config/result/health fixture | Not configured |
-| ReconVision | Skeleton | Config/result/health fixture | Not configured |
-| 1Micro | Skeleton | Config/result/health fixture | Not configured |
+| ReconVision | Recording-ready lookup | Synthetic result normalization + queued Local Agent job tests | Portal URL/selectors and manual login still required |
+| 1Micro | Recording-ready lookup | Synthetic result normalization + queued Local Agent job tests | Portal URL/selectors and manual login still required |
 | CARFAX | Skeleton | Config/result/health fixture | Not configured |
 | Window sticker | Skeleton | Config/result/health fixture | Not configured |
 | AccuTrade | Skeleton | Config/result/health fixture | Not configured |
@@ -65,8 +72,8 @@ run during this phase.
 
 - `pnpm typecheck`: passed
 - `pnpm lint`: passed (warnings only in preserved imported code)
-- `pnpm test`: 104 tests passed
-- `python -m pytest -q`: 91 tests passed
+- `pnpm test`: 111 tests passed
+- `python -m pytest -q`: 104 tests passed
 - `pnpm build`: passed for all 14 workspace projects
 - `pnpm security:check`: passed across 485 tracked and pending files
 - Prisma validate and client generation: passed
@@ -79,6 +86,18 @@ run during this phase.
 - Full GitHub Actions validation passed in
   [run 30032653958](https://github.com/Uncagedz/Xconsole-Dealership-Tool/actions/runs/30032653958)
 
+## Production state
+
+- Canonical GitHub source: `Uncagedz/XConsole`, branch `main`
+- Railway services currently online: dashboard, gateway API, AI API, PostgreSQL,
+  and the preserved legacy automation adapter
+- Dashboard public URL: `https://aniextension.up.railway.app`
+- Redis, n8n, and the scheduler remain prepared in source but are not provisioned
+  in Railway. PostgreSQL remains the durable job source, so their absence does
+  not block Local Agent VIN lookups.
+- JD Power workbook import was live-tested with 825 valid VIN values and verified
+  after a legacy-service redeploy.
+
 ## External validation still required
 
 - Migration deployment was not executed on the workstation because it has no
@@ -88,8 +107,11 @@ run during this phase.
   PostgreSQL service during release.
 - No authenticated external portal was used. The user must supply reviewed,
   sanitized recordings for each skeleton listed in `MIGRATION-PLAN.md`.
-- Railway services, Redis, n8n credentials, and production origins/tokens must
-  be provisioned in the user's accounts.
+- ReconVision and 1Micro require the authorized portal URLs, reviewed selectors,
+  and a one-time manual login/MFA on the Windows Local Agent. No selector or
+  endpoint has been guessed.
+- Redis, n8n, and scheduler credentials/services may be provisioned when their
+  optional orchestration workflows are activated.
 
 ## Security actions
 

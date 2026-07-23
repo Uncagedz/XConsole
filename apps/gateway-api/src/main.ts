@@ -5,6 +5,7 @@ import { GatewayStore, type GatewayStoreContract } from './store.js';
 
 const env = readEnv();
 const store: GatewayStoreContract = env.DATABASE_URL ? new PrismaGatewayStore() : new GatewayStore();
+await store.initialize?.();
 const app = createApp(env, store);
 const server = app.listen(env.PORT, () => {
   process.stdout.write(`${JSON.stringify({ level: 'info', event: 'gateway.started', port: env.PORT })}\n`);

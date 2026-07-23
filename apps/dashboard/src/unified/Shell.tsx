@@ -10,6 +10,7 @@ const navigation = [
   ['/leads', 'Leads'],
   ['/tasks', 'Tasks'],
   ['/marketplace', 'Marketplace'],
+  ['/messenger', 'Messenger'],
   ['/bank-brain', 'Bank Brain'],
   ['/connectors', 'Connectors'],
   ['/settings', 'Settings'],

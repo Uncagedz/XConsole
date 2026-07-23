@@ -145,6 +145,11 @@ export const vehicleSchema = z.object({
   jdPowerTradeIn: z.number().nonnegative().nullable().optional(),
   loanToValue: z.number().nonnegative().nullable().optional(),
   ltvBasis: z.number().nonnegative().nullable().optional(),
+  reconStage: z.string().nullable().optional(),
+  reconOpenWork: z.array(z.string()).optional(),
+  frontlineReady: z.boolean().nullable().optional(),
+  keyLocation: z.string().nullable().optional(),
+  keyHolder: z.string().nullable().optional(),
   daysInStock: z.number().int().nonnegative().nullable(),
   websiteUrl: z.string().url().nullable(),
   photos: z.array(z.string().url()).default([]),
@@ -237,6 +242,30 @@ export const automationJobSchema = z.object({
   idempotencyKey: z.string(),
 });
 
+export const automationJobStatusSchema = z.object({
+  id: z.string(),
+  connectorId: z.string(),
+  operation: z.string(),
+  status: z.enum([
+    'pending',
+    'approval-required',
+    'approved',
+    'leased',
+    'running',
+    'succeeded',
+    'failed',
+    'cancelled',
+  ]),
+  payload: z.record(z.unknown()),
+  result: z.record(z.unknown()).nullable(),
+  error: z.record(z.unknown()).nullable(),
+  attemptCount: z.number().int().nonnegative(),
+  maxAttempts: z.number().int().positive(),
+  createdAt: z.string().datetime(),
+  startedAt: z.string().datetime().nullable(),
+  finishedAt: z.string().datetime().nullable(),
+});
+
 export type ConnectorMetadata = z.infer<typeof connectorMetadataSchema>;
 export type ConnectorHealth = z.infer<typeof connectorHealthSchema>;
 export type ConnectorSyncResult = z.infer<typeof connectorSyncResultSchema>;
@@ -247,3 +276,4 @@ export type InventoryResponse = z.infer<typeof inventoryResponseSchema>;
 export type LeadContextIngest = z.infer<typeof leadContextIngestSchema>;
 export type AgentHeartbeat = z.infer<typeof agentHeartbeatSchema>;
 export type AutomationJob = z.infer<typeof automationJobSchema>;
+export type AutomationJobStatus = z.infer<typeof automationJobStatusSchema>;
