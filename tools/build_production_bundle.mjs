@@ -44,10 +44,10 @@ function copyDirectoryContents(source, target) {
   cpSync(source, target, { recursive: true });
 }
 
-run('npm', ['run', 'build']);
+run('pnpm', ['run', 'legacy:dashboard:build']);
 copyDirectoryContents(join(root, 'dist'), join(root, 'app', 'static', 'admin'));
 
-runOptional('npm', ['--prefix', 'sales-assistant/frontend', 'run', 'build'], 'Sales assistant frontend build');
-runOptional('npm', ['--prefix', 'sales-assistant/backend', 'run', 'build'], 'Sales assistant backend build');
+runOptional('pnpm', ['--dir', 'sales-assistant/frontend', 'run', 'build'], 'Sales assistant frontend build');
+runOptional('pnpm', ['--dir', 'sales-assistant/backend', 'run', 'build'], 'Sales assistant backend build');
 
 console.log('Production bundles are ready.');

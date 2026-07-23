@@ -24,6 +24,7 @@
     "db:deploy": "pnpm --filter @xconsole/database migrate:deploy",
     "legacy:dashboard:dev": "vite",
     "legacy:dashboard:build": "vite build",
+    "build:production": "node ./tools/build_production_bundle.mjs",
     "legacy:dashboard:test": "vitest run",
     "legacy:start": "python tools/railway_start.py",
     "legacy:facebook:publish": "python tools/facebook_publish.py",

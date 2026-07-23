@@ -132,12 +132,14 @@ def test_legacy_api_health_is_public_but_other_routes_require_auth(
     client = TestClient(main.app)
 
     health = client.get("/api/health")
+    railway_health = client.get("/health")
     protected = client.get(
         "/api/status",
         headers={"X-Request-ID": "auth-test-123"},
     )
 
     assert health.status_code == 200
+    assert railway_health.status_code == 200
     assert protected.status_code == 401
     assert protected.headers["x-request-id"] == "auth-test-123"
     assert protected.json()["error"] == "authentication_required"

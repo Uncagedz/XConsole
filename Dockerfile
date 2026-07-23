@@ -10,22 +10,23 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates chromium chromium-driver \
   && rm -rf /var/lib/apt/lists/*
 
-COPY package.json package-lock.json ./
-COPY sales-assistant/backend/package.json sales-assistant/backend/package-lock.json ./sales-assistant/backend/
-COPY sales-assistant/frontend/package.json sales-assistant/frontend/package-lock.json ./sales-assistant/frontend/
+RUN corepack enable && corepack prepare pnpm@11.9.0 --activate
 
-RUN npm ci \
+COPY . .
+
+RUN pnpm install --frozen-lockfile \
   && npm ci --prefix sales-assistant/backend \
   && npm ci --prefix sales-assistant/frontend
 
-COPY requirements.txt ./
 RUN python3 -m venv "${VIRTUAL_ENV}" \
   && pip install --no-cache-dir --upgrade pip \
   && pip install --no-cache-dir -r requirements.txt
 
-COPY . .
-
-RUN npm run build:production
+RUN pnpm db:generate \
+  && pnpm --filter @xconsole/ai-api... build \
+  && pnpm --filter @xconsole/gateway-api... build \
+  && pnpm --filter @xconsole/dashboard... build \
+  && npm run build:production
 RUN python tools/rebuild_bank_brain.py --json || true
 
-CMD ["python", "tools/railway_start.py"]
+CMD ["node", "tools/railway_dispatch.mjs"]

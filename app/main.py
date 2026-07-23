@@ -215,6 +215,11 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api")
 
 
+@app.get("/health")
+async def railway_health() -> dict[str, bool]:
+    return {"ok": True}
+
+
 def _is_uncached_app_path(path: str) -> bool:
     return (
         path.startswith("/api/")
@@ -258,7 +263,7 @@ async def optional_basic_auth(request: Request, call_next):
         response = await call_next(request)
         return _with_no_store_headers(path, response)
 
-    if path == "/api/health":
+    if path in {"/health", "/api/health"}:
         response = await call_next(request)
         return _with_no_store_headers(path, response)
 
