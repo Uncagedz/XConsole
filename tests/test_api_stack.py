@@ -703,6 +703,56 @@ def test_sync_live_inventory_fetches_multiple_sources_concurrently(monkeypatch):
     assert maximum_active == 3
 
 
+def test_ws_inventory_requests_larger_pages(monkeypatch):
+    calls = []
+
+    class FakeDriver:
+        def set_script_timeout(self, _timeout):
+            return None
+
+        def execute_async_script(self, _script, _api_path, payload):
+            calls.append(json.loads(json.dumps(payload)))
+            start = int(payload.get("inventoryParameters", {}).get("start", ["0"])[0])
+            page_size = int(payload["preferences"]["pageSize"])
+            inventory = [{"id": index} for index in range(start, min(start + page_size, 205))]
+            return {
+                "status": 200,
+                "text": json.dumps(
+                    {
+                        "pageInfo": {"pageSize": page_size, "totalCount": 205},
+                        "inventory": inventory,
+                    }
+                ),
+            }
+
+    monkeypatch.setenv("DEALERSHIP_INVENTORY_PAGE_SIZE", "100")
+    monkeypatch.setattr(
+        api,
+        "_ws_inventory_item_to_record",
+        lambda item, *, source_url: {
+            "vin": f"{item['id']:017d}",
+            "title": f"Vehicle {item['id']}",
+        },
+    )
+
+    records, diagnostics = api._fetch_ws_inventory_pages_from_browser(
+        FakeDriver(),
+        api_path="/api/widget/ws-inv-data/getInventory",
+        bootstrap_payload={"preferences": {"pageSize": 18}, "inventoryParameters": {}},
+        source_url="https://dealer.example/new-inventory/index.htm",
+        budget_seconds=60,
+        started_at=time.time(),
+    )
+
+    assert len(records) == 205
+    assert [call["preferences"]["pageSize"] for call in calls] == [100, 100, 100]
+    assert [
+        int(call.get("inventoryParameters", {}).get("start", ["0"])[0])
+        for call in calls
+    ] == [0, 100, 200]
+    assert "ws_inventory_pages_planned=3" in diagnostics
+
+
 def test_asset_priming_defaults_do_not_crawl_carfax_or_detail_pages(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "VEHICLE_ASSETS_CACHE_DIR", tmp_path)
     monkeypatch.delenv("CARFAX_PRIME_REPORT_FETCH_LIMIT", raising=False)

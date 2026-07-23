@@ -6410,6 +6410,15 @@ def _fetch_ws_inventory_pages_from_browser(
 ) -> tuple[list[dict[str, Any]], list[str]]:
     notes: list[str] = ["source_mode=browser_ws_inventory_api"]
     driver.set_script_timeout(max(30, int(min(120, budget_seconds))))
+    try:
+        requested_page_size = int(os.getenv("DEALERSHIP_INVENTORY_PAGE_SIZE", "100") or "100")
+    except ValueError:
+        requested_page_size = 100
+    requested_page_size = max(18, min(requested_page_size, 200))
+    request_payload = json.loads(json.dumps(bootstrap_payload))
+    request_payload["preferences"] = dict(request_payload.get("preferences") or {})
+    request_payload["preferences"]["pageSize"] = requested_page_size
+    notes.append(f"ws_inventory_requested_page_size={requested_page_size}")
     script = """
 const done = arguments[arguments.length - 1];
 fetch(arguments[0], {
@@ -6437,9 +6446,9 @@ fetch(arguments[0], {
 
     records: list[dict[str, Any]] = []
     seen: set[str] = set()
-    first_payload = fetch_page(0, bootstrap_payload)
+    first_payload = fetch_page(0, request_payload)
     page_info = first_payload.get("pageInfo") if isinstance(first_payload.get("pageInfo"), dict) else {}
-    page_size = int(page_info.get("pageSize") or bootstrap_payload.get("preferences", {}).get("pageSize") or 18)
+    page_size = int(page_info.get("pageSize") or request_payload.get("preferences", {}).get("pageSize") or 18)
     total_count = int(page_info.get("totalCount") or 0)
     starts = list(range(0, total_count, page_size)) if total_count and page_size else [0]
     notes.append(f"ws_inventory_total_count={total_count or 'unknown'}")
@@ -6468,7 +6477,7 @@ fetch(arguments[0], {
             notes.append(f"ws_inventory_budget_exhausted_at_start={start}")
             break
         try:
-            add_inventory(fetch_page(start, bootstrap_payload), start)
+            add_inventory(fetch_page(start, request_payload), start)
         except Exception as exc:
             notes.append(f"ws_inventory_page_error_start={start}|{exc}")
             continue
