@@ -31,6 +31,9 @@ playwright_deps/
 fb_artifacts/
 ilovepdf_pages-to-jpg/
 reports/
+outputs/
+data/routeone/
+**/*.local.json
 
 automation/facebook-marketplace-lister/accounts.json
 automation/facebook-marketplace-lister/images/
