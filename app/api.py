@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from io import BytesIO, StringIO
 from pathlib import Path
@@ -4166,12 +4167,12 @@ def _prime_inventory_asset_summaries(items: list[dict[str, Any]]) -> dict[str, A
         report_fetch_limit = int(os.getenv("CARFAX_PRIME_REPORT_FETCH_LIMIT", "0") or "0")
     except ValueError:
         report_fetch_limit = 0
-    report_fetch_all = report_fetch_limit <= 0
+    report_fetch_all = report_fetch_limit < 0
     if report_fetch_limit < 0:
         report_fetch_all = True
         report_fetch_limit = 10**9
     try:
-        detail_discovery_limit = int(os.getenv("CARFAX_PRIME_DETAIL_DISCOVERY_LIMIT", "120") or "120")
+        detail_discovery_limit = int(os.getenv("CARFAX_PRIME_DETAIL_DISCOVERY_LIMIT", "0") or "0")
     except ValueError:
         detail_discovery_limit = 120
     if detail_discovery_limit < 0:
@@ -4365,22 +4366,36 @@ def _sync_live_inventory(
     diagnostics: list[str] = []
     errors: list[dict[str, Any]] = []
 
-    for target_source in target_sources:
+    def fetch_source(target_source: str) -> tuple[str, dict[str, Any] | None, Exception | None]:
         try:
             fetched = _fetch_live_inventory_records(
                 source_url=target_source,
                 timeout_seconds=timeout_seconds,
             )
+            return target_source, fetched, None
+        except Exception as exc:
+            return target_source, None, exc
+
+    # The sources are independent. Fetching them concurrently keeps a
+    # three-page dealership refresh within the request budget instead of
+    # multiplying that budget by the number of feeds.
+    max_workers = min(3, max(1, len(target_sources)))
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="inventory-source") as executor:
+        results = list(executor.map(fetch_source, target_sources))
+
+    for target_source, fetched, error in results:
+        if fetched is not None:
             # Keep payloads even if zero so diagnostics tell the truth.
             fetched_payloads.append(fetched)
             diagnostics.extend([f"{target_source}: {item}" for item in list(fetched.get("diagnostics") or [])])
-        except HTTPException as exc:
-            detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
+            continue
+        if isinstance(error, HTTPException):
+            detail = error.detail if isinstance(error.detail, dict) else {"message": str(error.detail)}
             errors.append({"source_url": target_source, "detail": detail})
             diagnostics.append(f"{target_source}: error={detail}")
-        except Exception as exc:
-            errors.append({"source_url": target_source, "error": str(exc)})
-            diagnostics.append(f"{target_source}: error={exc}")
+        elif error is not None:
+            errors.append({"source_url": target_source, "error": str(error)})
+            diagnostics.append(f"{target_source}: error={error}")
 
     if not fetched_payloads:
         raise HTTPException(

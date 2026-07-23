@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 
 import pytest
 
@@ -661,6 +663,77 @@ def test_sync_live_inventory_persists_when_items_exist(monkeypatch, tmp_path):
     stored = api._safe_read_json(live_path, [])
     assert isinstance(stored, list)
     assert stored[0]["vin"] == "WP0AA2A90LS654321"
+
+
+def test_sync_live_inventory_fetches_multiple_sources_concurrently(monkeypatch):
+    sources = [
+        "https://dealer.example/used",
+        "https://dealer.example/new",
+        "https://dealer.example/lifted",
+    ]
+    lock = threading.Lock()
+    active = 0
+    maximum_active = 0
+
+    def fetch(*, source_url, timeout_seconds):
+        nonlocal active, maximum_active
+        with lock:
+            active += 1
+            maximum_active = max(maximum_active, active)
+        time.sleep(0.05)
+        with lock:
+            active -= 1
+        return {
+            "source_url": source_url,
+            "items": [],
+            "diagnostics": ["empty"],
+        }
+
+    monkeypatch.setattr(api, "_default_inventory_source_urls", lambda: sources)
+    monkeypatch.setattr(api, "_fetch_live_inventory_records", fetch)
+    monkeypatch.setattr(api, "_prime_inventory_asset_summaries", lambda items: {})
+
+    payload = api._sync_live_inventory(
+        source_url=None,
+        timeout_seconds=20,
+        persist=False,
+    )
+
+    assert payload["source_urls"] == sources
+    assert maximum_active == 3
+
+
+def test_asset_priming_defaults_do_not_crawl_carfax_or_detail_pages(monkeypatch, tmp_path):
+    monkeypatch.setattr(api, "VEHICLE_ASSETS_CACHE_DIR", tmp_path)
+    monkeypatch.delenv("CARFAX_PRIME_REPORT_FETCH_LIMIT", raising=False)
+    monkeypatch.delenv("CARFAX_PRIME_DETAIL_DISCOVERY_LIMIT", raising=False)
+    network_calls = []
+    monkeypatch.setattr(
+        api,
+        "_fetch_carfax_report_details",
+        lambda *args, **kwargs: network_calls.append("carfax"),
+    )
+    monkeypatch.setattr(
+        api,
+        "_discover_carfax_from_detail_page",
+        lambda *args, **kwargs: network_calls.append("detail"),
+    )
+
+    stats = api._prime_inventory_asset_summaries(
+        [
+            {
+                "vin": "1C6SRFFT0RN123456",
+                "title": "2024 Ram 1500 Lifted",
+                "detail_url": "https://dealer.example/used/ram.htm",
+                "carfax_url": "https://carfax.example/report",
+                "photos": ["https://images.example/ram.jpg"],
+            }
+        ]
+    )
+
+    assert network_calls == []
+    assert stats["primed"] == 1
+    assert (tmp_path / "1C6SRFFT0RN123456.json").exists()
 
 
 def test_failed_inventory_sync_preserves_last_success_metadata(monkeypatch, tmp_path):
