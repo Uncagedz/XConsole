@@ -703,6 +703,52 @@ def test_sync_live_inventory_bounds_source_concurrency(monkeypatch):
     assert maximum_active == 2
 
 
+def test_status_only_sync_enriches_existing_inventory_instead_of_replacing_it(monkeypatch, tmp_path):
+    live_path = tmp_path / "inventory_live.json"
+    backup_path = tmp_path / "inventory_live.backup.json"
+    live_path.write_text(
+        json.dumps(
+            [
+                {"vin": "1C4RJHBG0RC123456", "title": "Jeep", "status_label": "Ready"},
+                {"vin": "1C6SRFFT0RN123456", "title": "Ram", "status_label": "Ready"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(api, "INVENTORY_LIVE_CACHE_PATH", live_path)
+    monkeypatch.setattr(api, "INVENTORY_LIVE_BACKUP_PATH", backup_path)
+    monkeypatch.setattr(api, "_prime_inventory_asset_summaries", lambda items: {})
+    monkeypatch.setattr(
+        api,
+        "_fetch_live_inventory_records",
+        lambda *, source_url, timeout_seconds: {
+            "source_url": source_url,
+            "items": [
+                {
+                    "vin": "1C4RJHBG0RC123456",
+                    "title": "Jeep",
+                    "status_label": "In Transit",
+                }
+            ],
+            "diagnostics": ["ok"],
+        },
+    )
+
+    payload = api._sync_live_inventory(
+        source_url=(
+            "https://dealer.example/new-inventory/index.htm?status=7-7,"
+            "https://dealer.example/new-inventory/index.htm?status=13-13"
+        ),
+        timeout_seconds=20,
+        persist=False,
+    )
+
+    assert payload["items_count"] == 2
+    by_vin = {item["vin"]: item for item in payload["items"]}
+    assert by_vin["1C4RJHBG0RC123456"]["status_label"] == "In Transit"
+    assert by_vin["1C6SRFFT0RN123456"]["status_label"] == "Ready"
+
+
 def test_ws_inventory_requests_larger_pages(monkeypatch):
     calls = []
 

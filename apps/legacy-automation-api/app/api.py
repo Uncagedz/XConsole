@@ -4372,27 +4372,10 @@ def _sync_live_inventory(
     persist: bool,
 ) -> dict[str, Any]:
     target_sources = _split_inventory_source_urls(source_url) or _default_inventory_source_urls()
-    expanded_sources: list[str] = []
-    seen_sources: set[str] = set()
-    for target_source in target_sources:
-        candidates = [target_source]
-        if "new-inventory/index.htm" in target_source.lower() and not re.search(
-            r"[?&]status=", target_source, flags=re.IGNORECASE
-        ):
-            separator = "&" if "?" in target_source else "?"
-            candidates.extend(
-                [
-                    f"{target_source}{separator}status=7-7",
-                    f"{target_source}{separator}status=13-13",
-                ]
-            )
-        for candidate in candidates:
-            lowered = candidate.lower()
-            if lowered in seen_sources:
-                continue
-            seen_sources.add(lowered)
-            expanded_sources.append(candidate)
-    target_sources = expanded_sources
+    status_enrichment_only = bool(target_sources) and all(
+        re.search(r"[?&]status=(?:7-7|13-13)(?:&|$)", target_source, flags=re.IGNORECASE)
+        for target_source in target_sources
+    )
     fetched_payloads: list[dict[str, Any]] = []
     diagnostics: list[str] = []
     errors: list[dict[str, Any]] = []
@@ -4451,6 +4434,12 @@ def _sync_live_inventory(
         ],
         [],
     )
+    if status_enrichment_only and merged_items:
+        existing_items = _normalize_inventory_blob(
+            _read_inventory_blob_with_backup(INVENTORY_LIVE_CACHE_PATH, INVENTORY_LIVE_BACKUP_PATH)
+        )
+        merged_items = _merge_inventory_sources(existing_items + merged_items, [])
+        diagnostics.append(f"status_enrichment_base_records={len(existing_items)}")
     fetched_at = datetime.now(timezone.utc).isoformat()
     joined_source = ", ".join(target_sources)
     asset_prime = _prime_inventory_asset_summaries(merged_items) if merged_items else {
