@@ -26,16 +26,8 @@ if (serviceName.includes('ai-api')) {
   command = 'pnpm';
   args = ['--filter', '@xconsole/gateway-api', 'start'];
 } else if (serviceName.includes('dashboard')) {
-  command = 'pnpm';
-  args = [
-    '--filter',
-    '@xconsole/dashboard',
-    'preview',
-    '--host',
-    '0.0.0.0',
-    '--port',
-    String(process.env.PORT ?? '4173'),
-  ];
+  command = 'node';
+  args = ['tools/serve_dashboard.mjs'];
 }
 
 console.log(`Starting XConsole service role: ${serviceName}`);
