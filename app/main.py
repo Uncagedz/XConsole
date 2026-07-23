@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import os
@@ -108,6 +109,29 @@ def _request_id(request: Request) -> str:
     if REQUEST_ID_PATTERN.fullmatch(supplied):
         return supplied
     return uuid.uuid4().hex
+
+
+def _configured_legacy_api_token() -> str | None:
+    token = str(os.getenv("XCONSOLE_LEGACY_API_TOKEN") or "").strip()
+    if not token:
+        return None
+    if len(token) < 32:
+        raise RuntimeError(
+            "XCONSOLE_LEGACY_API_TOKEN must contain at least 32 characters."
+        )
+    return token
+
+
+def _legacy_bearer_token_matches(auth_header: str | None) -> bool:
+    configured = _configured_legacy_api_token()
+    if configured is None:
+        return False
+    scheme, _, supplied = str(auth_header or "").partition(" ")
+    return (
+        scheme.lower() == "bearer"
+        and bool(supplied)
+        and hmac.compare_digest(supplied, configured)
+    )
 
 
 def _json_safe_error_payload(
@@ -244,10 +268,59 @@ def _apply_session_cookie(request: Request, response: Response) -> Response:
 async def optional_basic_auth(request: Request, call_next):
     path = request.url.path
 
+    if request.method == "OPTIONS":
+        response = await call_next(request)
+        return _with_no_store_headers(path, response)
+
+    if path == "/api/health":
+        response = await call_next(request)
+        return _with_no_store_headers(path, response)
+
+    if path.startswith("/api/"):
+        session_user = current_user_from_session_cookie(
+            request.cookies.get("xconsole_session")
+        )
+        auth_user = current_user_from_auth_header(
+            request.headers.get("authorization", "")
+        )
+        service_authenticated = _legacy_bearer_token_matches(
+            request.headers.get("authorization", "")
+        )
+        if not session_user and not auth_user and not service_authenticated:
+            request_id = _request_id(request)
+            return JSONResponse(
+                status_code=401,
+                content=_json_safe_error_payload(
+                    message="Authentication required.",
+                    path=path,
+                    request_id=request_id,
+                    status_code=401,
+                    error="authentication_required",
+                ),
+                headers={
+                    "WWW-Authenticate": 'Basic realm="xConsole"',
+                    "X-Request-ID": request_id,
+                },
+            )
+        response = await call_next(request)
+        if auth_user:
+            secure_cookie = (
+                request.url.scheme == "https"
+                or request.headers.get("x-forwarded-proto", "").lower()
+                == "https"
+            )
+            response.set_cookie(
+                "xconsole_session",
+                issue_session_cookie(str(auth_user.get("username") or "")),
+                httponly=True,
+                samesite="lax",
+                secure=secure_cookie,
+                path="/",
+            )
+        return _with_no_store_headers(path, response)
+
     if (
-        path == "/api/health"
-        or path.startswith("/api/")
-        or path.startswith("/static/admin/assets/")
+        path.startswith("/static/admin/assets/")
         or path.startswith("/sales-assistant/assets/")
         or path == "/admin"
         or path.startswith("/admin/")

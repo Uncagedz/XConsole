@@ -101,12 +101,20 @@ Before turning a capture into a fixture:
 The original FastAPI application remains runnable with:
 
 ```powershell
+$env:XCONSOLE_BASIC_AUTH_USER = "<local-admin-name>"
+$env:XCONSOLE_BASIC_AUTH_PASSWORD = "<unique-password>"
+$env:XCONSOLE_SESSION_SECRET = "<32+-character-random-secret>"
+$env:XCONSOLE_LEGACY_API_TOKEN = "<32+-character-random-service-token>"
 pnpm legacy:start
 ```
 
 Its Facebook Selenium, dealership inventory, and RouteOne/Bank Brain entry
 points remain available through explicit legacy commands documented in the
-root `package.json`. New code should call connector or gateway boundaries.
+root `package.json`. Only `/api/health` and CORS preflight are unauthenticated.
+Configure connector `legacyAuthorization` as `Bearer
+<XCONSOLE_LEGACY_API_TOKEN>`. The preserved legacy dashboard instead uses the
+explicit Basic credentials and receives an HTTP-only session cookie. New code
+should call connector or gateway boundaries.
 
 ## Troubleshooting
 

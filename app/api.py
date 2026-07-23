@@ -31,6 +31,7 @@ from .utils.env import load_dotenv
 from .security import (
     DEFAULT_PERMISSIONS,
     current_user_from_auth_header,
+    current_user_from_session_cookie,
     deactivate_user,
     list_public_users,
     upsert_user,
@@ -11274,6 +11275,10 @@ def _eligible_for_posting(vehicle: dict[str, Any]) -> bool:
 def _require_permission(request: Request, permission: str) -> dict[str, Any]:
     user = current_user_from_auth_header(request.headers.get("authorization", ""))
     if not user:
+        user = current_user_from_session_cookie(
+            request.cookies.get("xconsole_session")
+        )
+    if not user:
         raise HTTPException(status_code=401, detail={"message": "Authentication required"})
     permissions = set(user.get("permissions") or [])
     if "admin.full" in permissions or permission in permissions:
@@ -11310,6 +11315,10 @@ def _mask_inventory_assets_for_user(items: list[dict[str, Any]], user: dict[str,
 @router.get("/me")
 def me(request: Request) -> dict[str, Any]:
     user = current_user_from_auth_header(request.headers.get("authorization", ""))
+    if not user:
+        user = current_user_from_session_cookie(
+            request.cookies.get("xconsole_session")
+        )
     return {
         "ok": bool(user),
         "user": user,

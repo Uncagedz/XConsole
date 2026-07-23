@@ -16,6 +16,7 @@ def _clear_legacy_auth_environment(monkeypatch) -> None:
     monkeypatch.delenv("XCONSOLE_BASIC_AUTH_USER", raising=False)
     monkeypatch.delenv("XCONSOLE_BASIC_AUTH_PASSWORD", raising=False)
     monkeypatch.delenv("XCONSOLE_SESSION_SECRET", raising=False)
+    monkeypatch.delenv("XCONSOLE_LEGACY_API_TOKEN", raising=False)
 
 
 def _request(
@@ -120,6 +121,74 @@ def test_legacy_cors_middleware_allows_local_dashboard_and_denies_unknown_origin
         "http://localhost:5173"
     )
     assert "access-control-allow-origin" not in denied.headers
+
+
+def test_legacy_api_health_is_public_but_other_routes_require_auth(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    _clear_legacy_auth_environment(monkeypatch)
+    monkeypatch.setattr(security, "USERS_PATH", tmp_path / "users.json")
+    client = TestClient(main.app)
+
+    health = client.get("/api/health")
+    protected = client.get(
+        "/api/status",
+        headers={"X-Request-ID": "auth-test-123"},
+    )
+
+    assert health.status_code == 200
+    assert protected.status_code == 401
+    assert protected.headers["x-request-id"] == "auth-test-123"
+    assert protected.json()["error"] == "authentication_required"
+    assert protected.json()["path"] == "/api/status"
+
+
+def test_legacy_api_accepts_explicit_service_bearer_token(monkeypatch) -> None:
+    token = "legacy-service-token-with-at-least-32-characters"
+    monkeypatch.setenv("XCONSOLE_LEGACY_API_TOKEN", token)
+    client = TestClient(main.app)
+
+    accepted = client.get(
+        "/api/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    rejected = client.get(
+        "/api/me",
+        headers={"Authorization": "Bearer wrong-token"},
+    )
+
+    assert accepted.status_code == 200
+    assert accepted.json()["ok"] is False
+    assert rejected.status_code == 401
+
+    monkeypatch.setenv("XCONSOLE_LEGACY_API_TOKEN", "too-short")
+    with pytest.raises(RuntimeError, match="at least 32 characters"):
+        main._configured_legacy_api_token()
+
+
+def test_legacy_basic_auth_establishes_reusable_session_cookie(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("XCONSOLE_BASIC_AUTH_USER", "configured-admin")
+    monkeypatch.setenv("XCONSOLE_BASIC_AUTH_PASSWORD", "configured-password-123")
+    monkeypatch.delenv("XCONSOLE_LEGACY_API_TOKEN", raising=False)
+    monkeypatch.setattr(security, "USERS_PATH", tmp_path / "users.json")
+    client = TestClient(main.app)
+    auth_header = security.configured_basic_auth_header()
+
+    initial = client.get(
+        "/api/me",
+        headers={"Authorization": str(auth_header)},
+    )
+    session = client.get("/api/me")
+
+    assert initial.status_code == 200
+    assert initial.json()["user"]["username"] == "configured-admin"
+    assert "xconsole_session=" in initial.headers["set-cookie"]
+    assert session.status_code == 200
+    assert session.json()["user"]["username"] == "configured-admin"
 
 
 def test_internal_errors_are_sanitized_and_correlated(monkeypatch) -> None:
