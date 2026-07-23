@@ -63,6 +63,38 @@ function jsonStringArray(value: Prisma.JsonValue): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
+function jsonRecord(value: Prisma.JsonValue): Record<string, Prisma.JsonValue> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, Prisma.JsonValue>
+    : {};
+}
+
+function nullableString(value: Prisma.JsonValue | undefined) {
+  return typeof value === 'string' ? value : null;
+}
+
+function nullableNumber(value: Prisma.JsonValue | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function inventoryDetails(vehicle: Vehicle, details: Record<string, unknown>) {
+  return Object.fromEntries(Object.entries({
+    ...details,
+    title: vehicle.title,
+    condition: vehicle.condition,
+    exteriorColor: vehicle.exteriorColor,
+    interiorColor: vehicle.interiorColor,
+    drivetrain: vehicle.drivetrain,
+    engine: vehicle.engine,
+    transmission: vehicle.transmission,
+    msrp: vehicle.msrp,
+  }).filter(([, value]) => value !== undefined)) as Prisma.InputJsonObject;
+}
+
+function isListedStatus(status: string) {
+  return !/(?:sold|inactive|removed|deleted)/i.test(status);
+}
+
 function automationJob(job: PrismaAutomationJob): AutomationJob {
   return {
     id: job.id,
@@ -112,39 +144,141 @@ export class PrismaGatewayStore implements GatewayStoreContract {
       this.prisma.connector.findMany({ select: { id: true, displayName: true, currentError: true } }),
     ]);
     const connectorMap = new Map(connectors.map((connector) => [connector.id, connector]));
-    return vehicles.map((vehicle) => ({
-      id: vehicle.id,
-      vin: vehicle.vin,
-      stockNumber: vehicle.stockNumber,
-      year: vehicle.year,
-      make: vehicle.make,
-      model: vehicle.model,
-      trim: vehicle.trim,
-      mileage: vehicle.mileage,
-      retailPrice: vehicle.retailPrice ? Number(vehicle.retailPrice) : null,
-      cost: vehicle.cost ? Number(vehicle.cost) : null,
-      daysInStock: vehicle.daysInStock,
-      websiteUrl: vehicle.websiteUrl,
-      photos: jsonStringArray(vehicle.photos),
-      sourceStatuses: vehicle.inventoryStatuses.map((status) => ({
-        connectorId: status.connectorId,
-        displayName: connectorMap.get(status.connectorId)?.displayName ?? status.connectorId,
-        status: status.status,
-        synchronizedAt: status.synchronizedAt.toISOString(),
-        error: connectorMap.get(status.connectorId)?.currentError ?? null,
-        reauthenticationRequired: false,
-        details:
-          typeof status.details === 'object' && status.details && !Array.isArray(status.details)
-            ? status.details
-            : {},
-      })),
-      salesTalkingPoints: jsonStringArray(vehicle.salesTalkingPoints),
-      lastSynchronizedAt: vehicle.lastSeenAt.toISOString(),
-    }));
+    return vehicles.map((vehicle) => {
+      const websiteStatus = vehicle.inventoryStatuses.find((status) => status.connectorId === 'dealership-website');
+      const details = jsonRecord(websiteStatus?.details ?? {});
+      return {
+        id: vehicle.id,
+        vin: vehicle.vin,
+        title: nullableString(details.title),
+        stockNumber: vehicle.stockNumber,
+        year: vehicle.year,
+        make: vehicle.make,
+        model: vehicle.model,
+        trim: vehicle.trim,
+        condition: nullableString(details.condition),
+        status: websiteStatus?.status ?? null,
+        mileage: vehicle.mileage,
+        retailPrice: vehicle.retailPrice ? Number(vehicle.retailPrice) : null,
+        msrp: nullableNumber(details.msrp),
+        cost: vehicle.cost ? Number(vehicle.cost) : null,
+        daysInStock: vehicle.daysInStock,
+        websiteUrl: vehicle.websiteUrl,
+        photos: jsonStringArray(vehicle.photos),
+        exteriorColor: nullableString(details.exteriorColor),
+        interiorColor: nullableString(details.interiorColor),
+        drivetrain: nullableString(details.drivetrain),
+        engine: nullableString(details.engine),
+        transmission: nullableString(details.transmission),
+        sourceStatuses: vehicle.inventoryStatuses.map((status) => ({
+          connectorId: status.connectorId,
+          displayName: connectorMap.get(status.connectorId)?.displayName ?? status.connectorId,
+          status: status.status,
+          synchronizedAt: status.synchronizedAt.toISOString(),
+          error: connectorMap.get(status.connectorId)?.currentError ?? null,
+          reauthenticationRequired: false,
+          details: jsonRecord(status.details),
+        })),
+        salesTalkingPoints: jsonStringArray(vehicle.salesTalkingPoints),
+        lastSynchronizedAt: vehicle.lastSeenAt.toISOString(),
+      };
+    });
   }
 
   async getVehicle(vin: string) {
     return (await this.listVehicles()).find((vehicle) => vehicle.vin === vin.toUpperCase());
+  }
+
+  async upsertVehicles(vehicles: Vehicle[]) {
+    const existing = new Set(
+      (await this.prisma.vehicle.findMany({
+        where: { vin: { in: vehicles.map((vehicle) => vehicle.vin) } },
+        select: { vin: true },
+      })).map((vehicle) => vehicle.vin),
+    );
+    const synchronizedAt = new Date();
+    const batchSize = 40;
+    for (let offset = 0; offset < vehicles.length; offset += batchSize) {
+      const batch = vehicles.slice(offset, offset + batchSize);
+      await Promise.all(batch.map(async (vehicle) => {
+        const stored = await this.prisma.vehicle.upsert({
+          where: { vin: vehicle.vin },
+          create: {
+            vin: vehicle.vin,
+            stockNumber: vehicle.stockNumber,
+            year: vehicle.year,
+            make: vehicle.make,
+            model: vehicle.model,
+            trim: vehicle.trim,
+            mileage: vehicle.mileage,
+            retailPrice: vehicle.retailPrice,
+            cost: vehicle.cost,
+            daysInStock: vehicle.daysInStock,
+            websiteUrl: vehicle.websiteUrl,
+            photos: vehicle.photos,
+            salesTalkingPoints: vehicle.salesTalkingPoints,
+            lastSeenAt: synchronizedAt,
+          },
+          update: {
+            stockNumber: vehicle.stockNumber,
+            year: vehicle.year,
+            make: vehicle.make,
+            model: vehicle.model,
+            trim: vehicle.trim,
+            mileage: vehicle.mileage,
+            retailPrice: vehicle.retailPrice,
+            cost: vehicle.cost,
+            daysInStock: vehicle.daysInStock,
+            websiteUrl: vehicle.websiteUrl,
+            photos: vehicle.photos,
+            salesTalkingPoints: vehicle.salesTalkingPoints,
+            lastSeenAt: synchronizedAt,
+          },
+        });
+        const website = vehicle.sourceStatuses.find((status) => status.connectorId === 'dealership-website');
+        if (website) {
+          await this.prisma.inventoryStatus.upsert({
+            where: {
+              vehicleId_connectorId: {
+                vehicleId: stored.id,
+                connectorId: website.connectorId,
+              },
+            },
+            create: {
+              vehicleId: stored.id,
+              connectorId: website.connectorId,
+              status: website.status,
+              listed: isListedStatus(website.status),
+              price: vehicle.retailPrice,
+              sourceUrl: vehicle.websiteUrl,
+              synchronizedAt: website.synchronizedAt ? new Date(website.synchronizedAt) : synchronizedAt,
+              details: inventoryDetails(vehicle, website.details),
+            },
+            update: {
+              status: website.status,
+              listed: isListedStatus(website.status),
+              price: vehicle.retailPrice,
+              sourceUrl: vehicle.websiteUrl,
+              synchronizedAt: website.synchronizedAt ? new Date(website.synchronizedAt) : synchronizedAt,
+              details: inventoryDetails(vehicle, website.details),
+            },
+          });
+        }
+      }));
+    }
+    const created = vehicles.filter((vehicle) => !existing.has(vehicle.vin)).length;
+    const updated = vehicles.length - created;
+    await this.prisma.connector.updateMany({
+      where: { id: 'dealership-website' },
+      data: {
+        lastAttemptedAt: synchronizedAt,
+        lastSuccessfulAt: synchronizedAt,
+        lastRecordsUpdated: vehicles.length,
+        currentError: null,
+        reauthenticationRequired: false,
+      },
+    });
+    return { created, updated };
   }
 
   async registerDevice(name: string) {

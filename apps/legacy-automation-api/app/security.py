@@ -15,6 +15,10 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_PERMISSIONS: list[str] = [
     "inventory.view",
     "inventory.edit",
+    "dealerships.manage",
+    "assets.view",
+    "stickers.view",
+    "carfax.view",
     "facebook.post",
     "facebook.leads",
     "offerup.post",
@@ -26,10 +30,27 @@ DEFAULT_PERMISSIONS: list[str] = [
 
 OPERATOR_PERMISSIONS: list[str] = [
     "inventory.view",
+    "assets.view",
+    "stickers.view",
+    "carfax.view",
     "facebook.post",
     "facebook.leads",
     "offerup.post",
     "bankbrain.view",
+]
+
+SERVICE_PERMISSIONS: list[str] = [
+    "inventory.view",
+    "inventory.edit",
+    "dealerships.manage",
+    "assets.view",
+    "stickers.view",
+    "carfax.view",
+    "facebook.post",
+    "facebook.leads",
+    "offerup.post",
+    "bankbrain.view",
+    "bankbrain.train",
 ]
 
 EPHEMERAL_SESSION_SECRET = secrets.token_urlsafe(48)
@@ -321,6 +342,39 @@ def authenticate_basic_header(auth_header: str | None) -> dict[str, Any] | None:
 
 def current_user_from_auth_header(auth_header: str | None) -> dict[str, Any] | None:
     return authenticate_basic_header(auth_header)
+
+
+def configured_legacy_api_token() -> str | None:
+    token = str(os.getenv("XCONSOLE_LEGACY_API_TOKEN") or "").strip()
+    if not token:
+        return None
+    if len(token) < 32:
+        raise RuntimeError(
+            "XCONSOLE_LEGACY_API_TOKEN must contain at least 32 characters."
+        )
+    return token
+
+
+def current_service_user_from_auth_header(
+    auth_header: str | None,
+) -> dict[str, Any] | None:
+    configured = configured_legacy_api_token()
+    if configured is None:
+        return None
+    scheme, _, supplied = str(auth_header or "").partition(" ")
+    if (
+        scheme.lower() != "bearer"
+        or not supplied
+        or not hmac.compare_digest(supplied, configured)
+    ):
+        return None
+    return {
+        "username": "xconsole-service",
+        "role": "service",
+        "permissions": list(SERVICE_PERMISSIONS),
+        "active": True,
+        "service": True,
+    }
 
 
 def _session_cookie_secret() -> str:

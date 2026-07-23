@@ -9,8 +9,17 @@ import {
   leadContextIngestSchema,
   vinSchema,
 } from '@drivecentric-ai/shared';
-import { dashboardAuth, deviceAuth, registrationCodeMatches } from './auth.js';
+import { z } from 'zod';
+import {
+  DASHBOARD_SESSION_COOKIE,
+  dashboardAuth,
+  dashboardTokenMatches,
+  deviceAuth,
+  issueDashboardSession,
+  registrationCodeMatches,
+} from './auth.js';
 import type { GatewayEnv } from './env.js';
+import { InventoryService, InventorySyncError } from './legacy-inventory.js';
 import { GatewayStore, type GatewayStoreContract } from './store.js';
 
 type AsyncRoute = (
@@ -27,7 +36,13 @@ function asyncRoute(handler: AsyncRoute) {
 
 export function createApp(env: GatewayEnv, store: GatewayStoreContract = new GatewayStore()) {
   const app = express();
-  const origins = new Set(env.CORS_ORIGINS.split(',').map((value) => value.trim()).filter(Boolean));
+  const inventory = new InventoryService(env, store);
+  const origins = new Set(
+    `${env.CORS_ORIGINS},${env.CHROME_EXTENSION_ORIGINS}`
+      .split(',')
+      .map((value) => value.trim().replace(/\/+$/, ''))
+      .filter(Boolean),
+  );
   app.disable('x-powered-by');
   app.use((request, response, next) => {
     const requestId = request.header('x-request-id') ?? randomUUID();
@@ -38,8 +53,9 @@ export function createApp(env: GatewayEnv, store: GatewayStoreContract = new Gat
   app.use(helmet());
   app.use(
     cors({
+      credentials: true,
       origin(origin, callback) {
-        if (!origin || origins.has(origin) || origin.startsWith('chrome-extension://')) callback(null, true);
+        if (!origin || origins.has(origin.replace(/\/+$/, ''))) callback(null, true);
         else callback(new Error('CORS origin blocked'));
       },
     }),
@@ -50,6 +66,23 @@ export function createApp(env: GatewayEnv, store: GatewayStoreContract = new Gat
   app.get('/health', (_request, response) => {
     response.json({ ok: true, service: 'xconsole-gateway-api', databaseConfigured: Boolean(env.DATABASE_URL) });
   });
+
+  app.post('/api/session', asyncRoute(async (request, response) => {
+    const payload = z.object({ token: z.string().min(24) }).strict().parse(request.body);
+    if (!dashboardTokenMatches(payload.token, env)) {
+      response.status(401).json({ error: { type: 'authentication', message: 'Invalid dashboard token' } });
+      return;
+    }
+    const session = issueDashboardSession(env);
+    response.cookie(DASHBOARD_SESSION_COOKIE, session.value, {
+      httpOnly: true,
+      sameSite: 'strict',
+      secure: env.NODE_ENV === 'production',
+      expires: session.expires,
+      path: '/',
+    });
+    response.json({ ok: true, expiresAt: session.expires.toISOString() });
+  }));
 
   app.post('/api/devices/register', asyncRoute(async (request, response) => {
     const payload = deviceRegistrationSchema.parse(request.body);
@@ -62,6 +95,19 @@ export function createApp(env: GatewayEnv, store: GatewayStoreContract = new Gat
 
   const requireDashboard = dashboardAuth(env);
   const requireDevice = deviceAuth(store);
+
+  app.get('/api/session', requireDashboard, (_request, response) => {
+    response.json({ ok: true });
+  });
+  app.delete('/api/session', requireDashboard, (_request, response) => {
+    response.clearCookie(DASHBOARD_SESSION_COOKIE, {
+      httpOnly: true,
+      sameSite: 'strict',
+      secure: env.NODE_ENV === 'production',
+      path: '/',
+    });
+    response.json({ ok: true });
+  });
 
   app.get('/api/devices', requireDashboard, asyncRoute(async (_request, response) => {
     response.json({ items: await store.listDevices() });
@@ -79,7 +125,8 @@ export function createApp(env: GatewayEnv, store: GatewayStoreContract = new Gat
     response.json({ connector, runs: [] });
   }));
   app.patch('/api/connectors/:connectorId', requireDashboard, asyncRoute(async (request, response) => {
-    const connector = await store.updateConnector(request.params.connectorId, { enabled: Boolean(request.body.enabled) });
+    const patch = z.object({ enabled: z.boolean() }).strict().parse(request.body);
+    const connector = await store.updateConnector(request.params.connectorId, patch);
     if (!connector) {
       response.status(404).json({ error: { type: 'not_found', message: 'Connector not found' } });
       return;
@@ -95,16 +142,30 @@ export function createApp(env: GatewayEnv, store: GatewayStoreContract = new Gat
       response.status(404).json({ error: { type: 'not_found', message: 'Connector not found' } });
       return;
     }
+    if (connector.id === 'dealership-website') {
+      response.json({ inventory: await inventory.sync() });
+      return;
+    }
     const approvalRequired = connector.capabilities.includes('write');
     response.status(202).json({ job: await store.createJob(connector.id, 'sync', approvalRequired) });
   }));
 
+  app.get('/api/inventory/active', requireDashboard, asyncRoute(async (_request, response) => {
+    response.json(await inventory.list());
+  }));
+  app.post('/api/inventory/sync-live', requireDashboard, asyncRoute(async (request, response) => {
+    response.json(await inventory.sync({
+      sourceUrl: request.body?.sourceUrl,
+      timeoutSeconds: request.body?.timeoutSeconds,
+      persist: request.body?.persist,
+    }));
+  }));
   app.get('/api/vehicles', requireDashboard, asyncRoute(async (_request, response) => {
-    response.json({ items: await store.listVehicles() });
+    response.json(await inventory.list());
   }));
   app.get('/api/vehicles/:vin', requireDashboard, asyncRoute(async (request, response) => {
     const vin = vinSchema.parse(request.params.vin);
-    const vehicle = await store.getVehicle(vin);
+    const vehicle = await inventory.get(vin);
     if (!vehicle) {
       response.status(404).json({ error: { type: 'not_found', message: 'Vehicle not found' } });
       return;
@@ -138,12 +199,26 @@ export function createApp(env: GatewayEnv, store: GatewayStoreContract = new Gat
     response.json({ ok: true });
   }));
 
-  app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+  app.use((error: unknown, request: express.Request, response: express.Response, _next: express.NextFunction) => {
     const validation = error && typeof error === 'object' && 'issues' in error;
-    response.status(validation ? 400 : 500).json({
+    const inventorySync = error instanceof InventorySyncError;
+    process.stderr.write(`${JSON.stringify({
+      level: validation ? 'warn' : 'error',
+      event: 'gateway.request_failed',
+      requestId: response.locals.requestId,
+      method: request.method,
+      path: request.path,
+      errorType: validation ? 'validation' : inventorySync ? 'connector_sync' : 'internal',
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    })}\n`);
+    response.status(validation ? 400 : inventorySync ? error.statusCode : 500).json({
       error: {
-        type: validation ? 'validation' : 'internal',
-        message: validation ? 'Request validation failed' : 'Internal server error',
+        type: validation ? 'validation' : inventorySync ? 'connector_sync' : 'internal',
+        message: validation
+          ? 'Request validation failed'
+          : inventorySync
+            ? error.message
+            : 'Internal server error',
         requestId: response.locals.requestId,
       },
     });

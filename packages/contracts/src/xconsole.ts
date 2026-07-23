@@ -130,20 +130,51 @@ export const vehicleSourceStatusSchema = z.object({
 export const vehicleSchema = z.object({
   id: z.string(),
   vin: vinSchema,
+  title: z.string().nullable().optional(),
   stockNumber: z.string().nullable(),
   year: z.number().int().min(1886).max(2200).nullable(),
   make: z.string().nullable(),
   model: z.string().nullable(),
   trim: z.string().nullable(),
+  condition: z.string().nullable().optional(),
+  status: z.string().nullable().optional(),
   mileage: z.number().int().nonnegative().nullable(),
   retailPrice: z.number().nonnegative().nullable(),
+  msrp: z.number().nonnegative().nullable().optional(),
   cost: z.number().nonnegative().nullable().optional(),
   daysInStock: z.number().int().nonnegative().nullable(),
   websiteUrl: z.string().url().nullable(),
   photos: z.array(z.string().url()).default([]),
+  exteriorColor: z.string().nullable().optional(),
+  interiorColor: z.string().nullable().optional(),
+  drivetrain: z.string().nullable().optional(),
+  engine: z.string().nullable().optional(),
+  transmission: z.string().nullable().optional(),
   sourceStatuses: z.array(vehicleSourceStatusSchema).default([]),
   salesTalkingPoints: z.array(z.string()).default([]),
   lastSynchronizedAt: z.string().datetime().nullable(),
+});
+
+export const inventorySourceSummarySchema = z.object({
+  mode: z.enum(['legacy-live', 'gateway-database', 'fixture']),
+  label: z.string(),
+  live: z.boolean(),
+  stale: z.boolean(),
+  configured: z.boolean(),
+  itemCount: z.number().int().nonnegative(),
+  activeCount: z.number().int().nonnegative(),
+  inTransitCount: z.number().int().nonnegative(),
+  synchronizedAt: z.string().datetime().nullable(),
+  warning: z.string().nullable(),
+  details: z.record(z.unknown()).default({}),
+});
+
+export const inventoryResponseSchema = z.object({
+  items: z.array(vehicleSchema),
+  count: z.number().int().nonnegative(),
+  activeCount: z.number().int().nonnegative(),
+  inTransitCount: z.number().int().nonnegative(),
+  source: inventorySourceSummarySchema,
 });
 
 export const leadContextIngestSchema = z.object({
@@ -208,6 +239,8 @@ export type ConnectorHealth = z.infer<typeof connectorHealthSchema>;
 export type ConnectorSyncResult = z.infer<typeof connectorSyncResultSchema>;
 export type ConnectorSummary = z.infer<typeof connectorSummarySchema>;
 export type Vehicle = z.infer<typeof vehicleSchema>;
+export type InventorySourceSummary = z.infer<typeof inventorySourceSummarySchema>;
+export type InventoryResponse = z.infer<typeof inventoryResponseSchema>;
 export type LeadContextIngest = z.infer<typeof leadContextIngestSchema>;
 export type AgentHeartbeat = z.infer<typeof agentHeartbeatSchema>;
 export type AutomationJob = z.infer<typeof automationJobSchema>;

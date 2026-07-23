@@ -30,6 +30,7 @@ from .facebook_session_runtime import ensure_runtime_session, latest_saved_sessi
 from .utils.env import load_dotenv
 from .security import (
     DEFAULT_PERMISSIONS,
+    current_service_user_from_auth_header,
     current_user_from_auth_header,
     current_user_from_session_cookie,
     deactivate_user,
@@ -4263,11 +4264,13 @@ def _prime_inventory_asset_summaries(items: list[dict[str, Any]]) -> dict[str, A
 def _inventory_source_status() -> dict[str, Any]:
     live_payload = _read_inventory_blob_with_backup(INVENTORY_LIVE_CACHE_PATH, INVENTORY_LIVE_BACKUP_PATH)
     snapshot_payload = _safe_read_json(INVENTORY_SNAPSHOT_PATH, [])
-    meta = _safe_read_json(INVENTORY_LIVE_META_PATH, {})
-    if not isinstance(meta, dict) or not meta.get("items_count"):
-        backup_meta = _safe_read_json(INVENTORY_LIVE_META_BACKUP_PATH, {})
-        if isinstance(backup_meta, dict):
-            meta = backup_meta
+    attempt_meta = _safe_read_json(INVENTORY_LIVE_META_PATH, {})
+    if not isinstance(attempt_meta, dict):
+        attempt_meta = {}
+    backup_meta = _safe_read_json(INVENTORY_LIVE_META_BACKUP_PATH, {})
+    if not isinstance(backup_meta, dict):
+        backup_meta = {}
+    successful_meta = attempt_meta if attempt_meta.get("items_count") else backup_meta
 
     live_items = _normalize_inventory_blob(live_payload)
     snapshot_items = _normalize_inventory_blob(snapshot_payload)
@@ -4293,9 +4296,16 @@ def _inventory_source_status() -> dict[str, Any]:
         "snapshot_count": len(snapshot_items),
         "snapshot_active_count": snapshot_counts["active"],
         "snapshot_in_transit_count": snapshot_counts["in_transit"],
-        "last_synced_at": meta.get("fetched_at") if isinstance(meta, dict) else None,
-        "last_source_url": meta.get("source_url") if isinstance(meta, dict) else None,
-        "last_sync_diagnostics": meta.get("diagnostics") if isinstance(meta, dict) else None,
+        "last_synced_at": successful_meta.get("fetched_at"),
+        "last_source_url": successful_meta.get("source_url"),
+        "last_sync_diagnostics": successful_meta.get("diagnostics"),
+        "last_attempted_at": attempt_meta.get("updated_at") or attempt_meta.get("fetched_at"),
+        "last_attempt_succeeded": bool(attempt_meta.get("items_count")),
+        "current_error": (
+            attempt_meta.get("reason")
+            if attempt_meta and not attempt_meta.get("items_count")
+            else None
+        ),
     }
 
 
@@ -4376,6 +4386,13 @@ def _sync_live_inventory(
     elif persist and not merged_items:
         # Do not overwrite a good existing cache with zero records. Save the
         # failed diagnostics to meta so the admin screen can show why sync failed.
+        previous_meta = _safe_read_json(INVENTORY_LIVE_META_PATH, {})
+        if (
+            isinstance(previous_meta, dict)
+            and previous_meta.get("items_count")
+            and not INVENTORY_LIVE_META_BACKUP_PATH.exists()
+        ):
+            _safe_write_json(INVENTORY_LIVE_META_BACKUP_PATH, previous_meta)
         _safe_write_json(
             INVENTORY_LIVE_META_PATH,
             {
@@ -6122,16 +6139,19 @@ def _open_browser(*, timeout_seconds: float = 18.0, headless: bool = True, profi
     if webdriver is None or ChromeService is None:
         raise RuntimeError("selenium_unavailable")
     chromedriver = _find_chromedriver()
-    if not chromedriver:
-        raise RuntimeError("chromedriver_missing")
     chrome_options = _build_browser_options(headless=headless, profile_dir=profile_dir, images_enabled=images_enabled)
     if chrome_options is None:
         raise RuntimeError("chrome_binary_missing")
 
-    driver = webdriver.Chrome(
-        service=ChromeService(executable_path=str(chromedriver)),
-        options=chrome_options,
-    )
+    if chromedriver:
+        driver = webdriver.Chrome(
+            service=ChromeService(executable_path=str(chromedriver)),
+            options=chrome_options,
+        )
+    else:
+        # Selenium Manager resolves a compatible driver when Chrome is present
+        # but no explicit driver was configured.
+        driver = webdriver.Chrome(options=chrome_options)
     driver.set_page_load_timeout(max(10, int(timeout_seconds)))
     return driver
 
@@ -7782,6 +7802,17 @@ def _find_chromedriver() -> Path | None:
         candidate = Path(env_driver)
         if candidate.exists():
             return candidate
+    user_profile = str(os.getenv("USERPROFILE", "")).strip()
+    if _running_on_windows() and user_profile:
+        selenium_cache = Path(user_profile) / ".cache" / "selenium" / "chromedriver" / "win64"
+        if selenium_cache.exists():
+            cached = sorted(
+                selenium_cache.glob("*/chromedriver.exe"),
+                key=lambda item: item.parent.name,
+                reverse=True,
+            )
+            if cached:
+                return cached[0]
     if not _running_on_windows():
         for command in ("chromedriver", "chromium-driver"):
             resolved = shutil.which(command)
@@ -7823,10 +7854,16 @@ def _find_chrome_binary() -> Path | None:
             if resolved:
                 return Path(resolved)
 
+    local_app_data = str(os.getenv("LOCALAPPDATA", "")).strip()
     local_candidates = [
         FML_DIR / "chrome-for-testing" / "chrome-win64" / "chrome.exe",
         FML_DIR / "chrome-114" / "chrome-win64" / "chrome.exe",
         FML_DIR / "chrome-win64" / "chrome.exe",
+        *(
+            [Path(local_app_data) / "Google" / "Chrome" / "Application" / "chrome.exe"]
+            if local_app_data
+            else []
+        ),
         Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
         Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
     ] if _running_on_windows() else []
@@ -11279,6 +11316,10 @@ def _require_permission(request: Request, permission: str) -> dict[str, Any]:
             request.cookies.get("xconsole_session")
         )
     if not user:
+        user = current_service_user_from_auth_header(
+            request.headers.get("authorization", "")
+        )
+    if not user:
         raise HTTPException(status_code=401, detail={"message": "Authentication required"})
     permissions = set(user.get("permissions") or [])
     if "admin.full" in permissions or permission in permissions:
@@ -11318,6 +11359,10 @@ def me(request: Request) -> dict[str, Any]:
     if not user:
         user = current_user_from_session_cookie(
             request.cookies.get("xconsole_session")
+        )
+    if not user:
+        user = current_service_user_from_auth_header(
+            request.headers.get("authorization", "")
         )
     return {
         "ok": bool(user),

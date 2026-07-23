@@ -23,19 +23,15 @@ PII, and captured portal artifacts must never be committed.
 
 ## Start Local Stack
 
-Run one of these from the repo root:
+Use the maintained pnpm entry points from the repository root:
 
 ```powershell
-.\start-local-stack.ps1
+pnpm dev:cloud
 ```
 
-or
-
-```cmd
-start-local-stack.cmd
-```
-
-For double-click launch from Explorer, use `start-local-stack.cmd` (not the `.ps1` file).
+This starts the gateway, AI API, and unified dashboard. To connect the unified
+inventory page to the preserved live FastAPI synchronizer, follow
+[the live inventory setup](docs/DEVELOPMENT.md#use-the-live-admin-inventory-in-the-unified-dashboard).
 
 Optional one-shot Facebook live setup (driver + placeholder images):
 
@@ -92,11 +88,13 @@ The launcher also prints a LAN IP URL so you can open the UI from another machin
 
 ## Live Dealership Inventory
 
-- Default source URL: `https://www.porschewestbroward.com/new-vehicles/`
-- Override source URL with env var:
+The preserved FastAPI service defaults to the configured Taverna used and new
+inventory pages. Override either source without changing code:
 
 ```powershell
-$env:DEALERSHIP_INVENTORY_URL = "https://your-dealership.com/new-vehicles/"
+$env:DEALERSHIP_INVENTORY_URL = "https://your-dealership.com/used-vehicles/"
+$env:DEALERSHIP_NEW_INVENTORY_URL = "https://your-dealership.com/new-vehicles/"
 ```
 
-- The dashboard now includes **Dealership Inventory Sync** so you can refresh inventory from the live website and immediately view it in the inventory panel.
+- The unified `/inventory` page shows the same live records, photos, prices,
+  source freshness, and sync control through the authenticated gateway bridge.

@@ -23,6 +23,7 @@ Use Railway secrets, never committed `.env` files:
 - `DATABASE_URL`
 - `REDIS_URL`
 - `XCONSOLE_API_TOKEN` (32+ random characters)
+- `XCONSOLE_DASHBOARD_SESSION_SECRET` (a different 32+ character random value)
 - `XCONSOLE_DEVICE_REGISTRATION_CODE` (one-time, rotate after registration)
 - `CORS_ORIGINS`
 - `XCONSOLE_GATEWAY_URL`
@@ -42,7 +43,12 @@ deploy billing/subscription variables; Phase 1 disables those routes.
 5. Deploy AI API and verify `/health`.
 6. Deploy the workflow orchestrator. Keep the legacy compatibility service
    local unless its cloud-safe parsing/import boundary is explicitly needed.
-7. Deploy the dashboard with gateway origin/token configuration.
+7. Deploy the dashboard with `VITE_GATEWAY_API_URL` pointing at the public
+   gateway and add the dashboard origin to the gateway `CORS_ORIGINS`.
+   Never set `VITE_XCONSOLE_API_TOKEN` in a production dashboard build: Vite
+   variables are public browser code. Enter `XCONSOLE_API_TOKEN` on the
+   dashboard sign-in screen instead; the gateway exchanges it for a signed,
+   HTTP-only session cookie.
 8. Register the Windows Local Agent, then rotate the registration code.
 9. Import disabled n8n workflows from `workflows/n8n`, bind credentials, review
    every node, and enable workflows individually.

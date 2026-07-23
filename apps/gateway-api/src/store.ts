@@ -21,6 +21,7 @@ export interface GatewayStoreContract {
   updateConnector(id: string, patch: Partial<Pick<ConnectorSummary, 'enabled'>>): MaybePromise<ConnectorSummary | undefined>;
   listVehicles(): MaybePromise<Vehicle[]>;
   getVehicle(vin: string): MaybePromise<Vehicle | undefined>;
+  upsertVehicles?(vehicles: Vehicle[]): MaybePromise<{ created: number; updated: number }>;
   registerDevice(name: string): MaybePromise<{ deviceId: string; deviceToken: string }>;
   authenticateDevice(token: string): MaybePromise<{ id: string } | undefined>;
   listDevices(): MaybePromise<Array<{ id: string; name: string; lastHeartbeat?: AgentHeartbeat }>>;
@@ -60,6 +61,19 @@ export class GatewayStore implements GatewayStoreContract {
 
   getVehicle(vin: string) {
     return this.vehicles.find((vehicle) => vehicle.vin === vin.toUpperCase());
+  }
+
+  upsertVehicles(vehicles: Vehicle[]) {
+    let created = 0;
+    let updated = 0;
+    const byVin = new Map(this.vehicles.map((vehicle) => [vehicle.vin, vehicle]));
+    for (const vehicle of vehicles) {
+      if (byVin.has(vehicle.vin)) updated += 1;
+      else created += 1;
+      byVin.set(vehicle.vin, structuredClone(vehicle));
+    }
+    this.vehicles = [...byVin.values()];
+    return { created, updated };
   }
 
   registerDevice(name: string) {

@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from app import api
@@ -659,6 +661,72 @@ def test_sync_live_inventory_persists_when_items_exist(monkeypatch, tmp_path):
     stored = api._safe_read_json(live_path, [])
     assert isinstance(stored, list)
     assert stored[0]["vin"] == "WP0AA2A90LS654321"
+
+
+def test_failed_inventory_sync_preserves_last_success_metadata(monkeypatch, tmp_path):
+    live_path = tmp_path / "inventory_live.json"
+    live_path.write_text(
+        json.dumps([{"vin": "WP0AA2A90LS654321", "status_label": "live"}]),
+        encoding="utf-8",
+    )
+    meta_path = tmp_path / "inventory_meta.json"
+    meta_path.write_text(
+        json.dumps({
+            "source_url": "https://dealer.example/used",
+            "fetched_at": "2026-03-02T12:00:00+00:00",
+            "items_count": 1,
+            "diagnostics": ["last-good-sync"],
+        }),
+        encoding="utf-8",
+    )
+    meta_backup = tmp_path / "inventory_meta.backup.json"
+    snapshot_path = tmp_path / "inventory_snapshot.json"
+    snapshot_path.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(api, "INVENTORY_LIVE_CACHE_PATH", live_path)
+    monkeypatch.setattr(api, "INVENTORY_LIVE_META_PATH", meta_path)
+    monkeypatch.setattr(api, "INVENTORY_LIVE_BACKUP_PATH", tmp_path / "inventory_live.backup.json")
+    monkeypatch.setattr(api, "INVENTORY_LIVE_META_BACKUP_PATH", meta_backup)
+    monkeypatch.setattr(api, "INVENTORY_SNAPSHOT_PATH", snapshot_path)
+    monkeypatch.setattr(api, "_default_inventory_source_url", lambda: "https://dealer.example/used")
+    monkeypatch.setattr(
+        api,
+        "_fetch_live_inventory_records",
+        lambda *, source_url, timeout_seconds: {
+            "source_url": source_url,
+            "items": [],
+            "diagnostics": ["no_inventory_records_after_all_fallbacks"],
+        },
+    )
+
+    payload = api._sync_live_inventory(source_url=None, timeout_seconds=20, persist=True)
+    status = api._inventory_source_status()
+
+    assert payload["ok"] is False
+    assert payload["persisted"] is False
+    assert meta_backup.exists()
+    assert status["last_synced_at"] == "2026-03-02T12:00:00+00:00"
+    assert status["last_attempt_succeeded"] is False
+    assert "existing live cache was preserved" in status["current_error"]
+    assert api._safe_read_json(live_path, [])[0]["vin"] == "WP0AA2A90LS654321"
+
+
+def test_browser_discovery_supports_per_user_chrome_and_selenium_cache(monkeypatch, tmp_path):
+    local_app_data = tmp_path / "LocalAppData"
+    chrome = local_app_data / "Google" / "Chrome" / "Application" / "chrome.exe"
+    chrome.parent.mkdir(parents=True)
+    chrome.write_bytes(b"synthetic executable")
+    user_profile = tmp_path / "User"
+    driver = user_profile / ".cache" / "selenium" / "chromedriver" / "win64" / "140.0.0" / "chromedriver.exe"
+    driver.parent.mkdir(parents=True)
+    driver.write_bytes(b"synthetic driver")
+    monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
+    monkeypatch.setenv("USERPROFILE", str(user_profile))
+    monkeypatch.delenv("CHROME_BINARY", raising=False)
+    monkeypatch.delenv("CHROMEDRIVER_PATH", raising=False)
+    monkeypatch.setattr(api, "_running_on_windows", lambda: True)
+
+    assert api._find_chrome_binary() == chrome
+    assert api._find_chromedriver() == driver
 
 
 def test_fetch_live_inventory_records_uses_browser_fallback_when_proxy_returns_no_items(monkeypatch):

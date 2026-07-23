@@ -1,5 +1,5 @@
+import { lazy, Suspense } from 'react';
 import { Navigate, createBrowserRouter, createRoutesFromElements, Route } from 'react-router-dom';
-import { AppShell } from './App';
 import {
   ConnectorDetailPage,
   ConnectorsPage,
@@ -9,6 +9,11 @@ import {
   VehiclePage,
 } from './unified/pages';
 import { UnifiedShell } from './unified/Shell';
+
+const LegacyAppShell = lazy(async () => {
+  const module = await import('./App');
+  return { default: module.AppShell };
+});
 
 export const requiredRoutes = [
   '/dashboard',
@@ -41,7 +46,10 @@ export const router = createBrowserRouter(
         <Route path="connectors/:connectorId" element={<ConnectorDetailPage />} />
         <Route path="settings" element={<PartialPage title="Settings" description="Device registration, connector enablement, and environment-backed service configuration belong here." />} />
       </Route>
-      <Route path="/legacy/*" element={<AppShell />} />
+      <Route
+        path="/legacy/*"
+        element={<Suspense fallback={<div className="ux-state">Loading legacy command center…</div>}><LegacyAppShell /></Suspense>}
+      />
     </>,
   ),
 );

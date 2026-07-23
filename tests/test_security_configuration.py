@@ -157,9 +157,21 @@ def test_legacy_api_accepts_explicit_service_bearer_token(monkeypatch) -> None:
         "/api/me",
         headers={"Authorization": "Bearer wrong-token"},
     )
+    inventory = client.get(
+        "/api/inventory/active",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    admin = client.get(
+        "/api/admin/users",
+        headers={"Authorization": f"Bearer {token}"},
+    )
 
     assert accepted.status_code == 200
-    assert accepted.json()["ok"] is False
+    assert accepted.json()["ok"] is True
+    assert accepted.json()["user"]["role"] == "service"
+    assert "inventory.view" in accepted.json()["user"]["permissions"]
+    assert inventory.status_code == 200
+    assert admin.status_code == 403
     assert rejected.status_code == 401
 
     monkeypatch.setenv("XCONSOLE_LEGACY_API_TOKEN", "too-short")

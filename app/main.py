@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hmac
 import json
 import logging
 import os
@@ -19,7 +18,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .api import router as api_router
 from .security import (
     authenticate_basic_header,
+    configured_legacy_api_token,
     configured_basic_auth_header,
+    current_service_user_from_auth_header,
     current_user_from_auth_header,
     current_user_from_session_cookie,
     issue_session_cookie,
@@ -112,26 +113,11 @@ def _request_id(request: Request) -> str:
 
 
 def _configured_legacy_api_token() -> str | None:
-    token = str(os.getenv("XCONSOLE_LEGACY_API_TOKEN") or "").strip()
-    if not token:
-        return None
-    if len(token) < 32:
-        raise RuntimeError(
-            "XCONSOLE_LEGACY_API_TOKEN must contain at least 32 characters."
-        )
-    return token
+    return configured_legacy_api_token()
 
 
 def _legacy_bearer_token_matches(auth_header: str | None) -> bool:
-    configured = _configured_legacy_api_token()
-    if configured is None:
-        return False
-    scheme, _, supplied = str(auth_header or "").partition(" ")
-    return (
-        scheme.lower() == "bearer"
-        and bool(supplied)
-        and hmac.compare_digest(supplied, configured)
-    )
+    return current_service_user_from_auth_header(auth_header) is not None
 
 
 def _json_safe_error_payload(

@@ -116,6 +116,45 @@ Configure connector `legacyAuthorization` as `Bearer
 explicit Basic credentials and receives an HTTP-only session cookie. New code
 should call connector or gateway boundaries.
 
+### Use the live admin inventory in the unified dashboard
+
+The unified gateway now reads the mature FastAPI inventory pipeline instead of
+showing only its database seed. Use the same random service token in both
+processes.
+
+Legacy API terminal:
+
+```powershell
+$env:PORT = "8100"
+$env:XCONSOLE_LEGACY_API_TOKEN = "<32+-character-random-service-token>"
+pnpm legacy:start
+```
+
+Unified stack terminal:
+
+```powershell
+$env:LEGACY_AUTOMATION_API_URL = "http://127.0.0.1:8100"
+$env:XCONSOLE_LEGACY_API_TOKEN = "<same-service-token>"
+$env:XCONSOLE_ALLOW_INSECURE_DEV = "true"
+pnpm dev:cloud
+```
+
+Open `http://127.0.0.1:5173/inventory`. The gateway caches the normalized read
+for 30 seconds. “Sync live inventory” refreshes the legacy website cache and,
+when PostgreSQL is configured, upserts the VIN records and dealership source
+status into the central database.
+
+`VITE_XCONSOLE_API_TOKEN` is an optional local-development shortcut only. Do
+not set it on a deployed dashboard because every `VITE_` value is embedded in
+the public JavaScript bundle. In production, configure a separate
+`XCONSOLE_DASHBOARD_SESSION_SECRET` on the gateway and use the dashboard
+sign-in screen. The access token is exchanged server-side for a signed,
+HTTP-only cookie and is not stored by the dashboard.
+
+For the DriveCentric extension, add its exact
+`chrome-extension://<extension-id>` origin to `CHROME_EXTENSION_ORIGINS`.
+Arbitrary extension origins are rejected.
+
 ## Troubleshooting
 
 - `P1012 Environment variable not found`: set `DATABASE_URL`.

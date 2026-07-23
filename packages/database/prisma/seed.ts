@@ -11,19 +11,19 @@ import argon2 from 'argon2';
 const prisma = new PrismaClient();
 
 const connectorSeeds = [
-  ['dealership-website', 'Dealership Website', ConnectorExecutionLocation.RAILWAY, true],
-  ['facebook-marketplace', 'Facebook Marketplace', ConnectorExecutionLocation.LOCAL_AGENT, true],
-  ['drivecentric', 'DriveCentric', ConnectorExecutionLocation.EXTENSION, true],
-  ['routeone-bank-brain', 'RouteOne / Bank Brain', ConnectorExecutionLocation.RAILWAY, true],
-  ['vauto', 'vAuto', ConnectorExecutionLocation.LOCAL_AGENT, false],
-  ['reconvision', 'ReconVision', ConnectorExecutionLocation.LOCAL_AGENT, false],
-  ['onemicro', '1Micro', ConnectorExecutionLocation.LOCAL_AGENT, false],
-  ['carfax', 'CARFAX', ConnectorExecutionLocation.LOCAL_AGENT, false],
-  ['window-sticker', 'Window Sticker', ConnectorExecutionLocation.RAILWAY, false],
-  ['accutrade', 'AccuTrade', ConnectorExecutionLocation.LOCAL_AGENT, false],
-  ['reynolds', 'Reynolds & Reynolds', ConnectorExecutionLocation.LOCAL_AGENT, false],
-  ['craigslist', 'Craigslist', ConnectorExecutionLocation.LOCAL_AGENT, false],
-  ['offerup', 'OfferUp', ConnectorExecutionLocation.LOCAL_AGENT, false],
+  ['dealership-website', 'Dealership Website', ConnectorExecutionLocation.RAILWAY, true, ['read']],
+  ['facebook-marketplace', 'Facebook Marketplace', ConnectorExecutionLocation.LOCAL_AGENT, true, ['read', 'write', 'upload']],
+  ['drivecentric', 'DriveCentric', ConnectorExecutionLocation.EXTENSION, true, ['read', 'upload']],
+  ['routeone-bank-brain', 'RouteOne / Bank Brain', ConnectorExecutionLocation.RAILWAY, true, ['read', 'download', 'upload']],
+  ['vauto', 'vAuto', ConnectorExecutionLocation.LOCAL_AGENT, false, ['read', 'download']],
+  ['reconvision', 'ReconVision', ConnectorExecutionLocation.LOCAL_AGENT, false, ['read']],
+  ['onemicro', '1Micro', ConnectorExecutionLocation.LOCAL_AGENT, false, ['read']],
+  ['carfax', 'CARFAX', ConnectorExecutionLocation.LOCAL_AGENT, false, ['read', 'download']],
+  ['window-sticker', 'Window Sticker', ConnectorExecutionLocation.RAILWAY, false, ['read', 'download']],
+  ['accutrade', 'AccuTrade', ConnectorExecutionLocation.LOCAL_AGENT, false, ['read']],
+  ['reynolds', 'Reynolds & Reynolds', ConnectorExecutionLocation.LOCAL_AGENT, false, ['read', 'download']],
+  ['craigslist', 'Craigslist', ConnectorExecutionLocation.LOCAL_AGENT, false, ['read', 'write', 'upload']],
+  ['offerup', 'OfferUp', ConnectorExecutionLocation.LOCAL_AGENT, false, ['read', 'write', 'upload']],
 ] as const;
 
 function slugify(value: string) {
@@ -31,7 +31,7 @@ function slugify(value: string) {
 }
 
 async function main() {
-  for (const [id, displayName, executionLocation, enabled] of connectorSeeds) {
+  for (const [id, displayName, executionLocation, enabled, capabilities] of connectorSeeds) {
     await prisma.connector.upsert({
       where: { id },
       create: {
@@ -39,12 +39,12 @@ async function main() {
         displayName,
         executionLocation,
         enabled,
-        capabilities: ['read'],
+        capabilities: [...capabilities],
         authenticationStatus: enabled
           ? ConnectorAuthenticationStatus.AUTHENTICATED
           : ConnectorAuthenticationStatus.NOT_CONFIGURED,
       },
-      update: { displayName, executionLocation },
+      update: { displayName, executionLocation, capabilities: [...capabilities] },
     });
   }
 

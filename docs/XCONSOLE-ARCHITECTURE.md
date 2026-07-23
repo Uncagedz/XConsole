@@ -176,7 +176,10 @@ Authorization headers, cookies, passwords, raw HTML, full customer credit data, 
 
 ## Security model
 
-- Dashboard user sessions use short-lived access tokens and rotating refresh sessions.
+- The Phase 1 owner dashboard exchanges its gateway token for a signed,
+  short-lived, HTTP-only session cookie. The gateway token is never compiled
+  into a production dashboard bundle. Multi-user access and rotating refresh
+  sessions remain a later identity milestone.
 - Extension tokens are scoped to extension ingestion/AI/inventory reads and explicit feedback.
 - Device tokens are independently revocable and cannot act as a dashboard user.
 - Sensitive routes are rate-limited and all writes are audited.
@@ -202,15 +205,21 @@ Authorization headers, cookies, passwords, raw HTML, full customer credit data, 
 | Craigslist | Skeleton/approval write | Local Agent |
 | OfferUp | Skeleton/approval write | Local Agent |
 
-## Feature flags
+## Active migration controls
 
-- `XCONSOLE_USE_GATEWAY_INVENTORY`
-- `XCONSOLE_USE_PRISMA_CONNECTOR_HEALTH`
-- `XCONSOLE_ENABLE_LOCAL_AGENT_JOBS`
-- `XCONSOLE_ENABLE_FACEBOOK_LIVE`
-- `XCONSOLE_ENABLE_LEGACY_PROXY`
+- `LEGACY_AUTOMATION_API_URL` and `XCONSOLE_LEGACY_API_TOKEN` connect the
+  gateway to the preserved inventory synchronizer through an authenticated
+  server-to-server boundary.
+- `LEGACY_INVENTORY_CACHE_TTL_MS` limits duplicate reads of the large inventory
+  payload.
+- Explicit sync persists normalized VIN records into Prisma/PostgreSQL when the
+  database-backed gateway store is active.
+- `CHROME_EXTENSION_ORIGINS` contains only reviewed DriveCentric extension
+  origins.
 
-Legacy startup remains available until equivalent contract and regression tests pass.
+Legacy startup remains available for Facebook, RouteOne/Bank Brain, and admin
+rollback compatibility. The unified inventory route no longer depends on a
+synthetic gateway seed when the adapter is configured.
 
 ## Error and reauthentication semantics
 

@@ -16,11 +16,14 @@ Status date: 2026-07-23
 - Central additive Prisma schema, migration, secure seed, validation, and
   generated client
 - Authenticated Express gateway with connector, inventory, extension, device,
-  heartbeat, and job endpoints
+  heartbeat, job, and signed HTTP-only dashboard-session endpoints
 - Windows Local Agent with DPAPI configuration, heartbeat/polling, backoff,
   redacted logs, headed Playwright recording, and sanitized failure artifacts
 - Dashboard Phase 1 routes, connector health/detail pages, and inventory source
   status
+- Unified live inventory bridge to the preserved synchronizer, including rich
+  VIN normalization, photo/search/filter/sort UI, explicit refresh, 30-second
+  gateway caching, last-good-data fallback, and PostgreSQL upsert on live sync
 - DriveCentric extension build repair, explicit context ingestion, server-side
   gateway forwarding, and inventory suggestions
 - Existing AI prompt/provider/evaluator behavior preserved; subscription and
@@ -32,13 +35,16 @@ Status date: 2026-07-23
   responses
 - Top-level legacy API authentication with public health only, Basic/session
   dashboard access, and a separate service bearer token for connector wrappers
+- Scoped service-token permissions that work through route-level checks without
+  granting user administration
+- Explicit Chrome-extension CORS allowlist and validated connector state changes
 - Original FastAPI/dashboard tools retained for rollback compatibility
 
 ## Connector truth table
 
 | Connector | Phase 1 state | Evidence | Live status |
 | --- | --- | --- | --- |
-| Dealership website | Wrapped | Existing live-sync endpoints + synthetic fixture test | Preserved, not re-exercised against dealer site |
+| Dealership website | Wrapped | Existing live-sync endpoints, normalized gateway bridge, unit tests, and local browser smoke against the packaged live cache | Read path exercised with 1,115 VIN records; external website refresh still requires a successful current sync |
 | Facebook Marketplace | Wrapped | Draft/status adapters + fixture test; Selenium entry point preserved | Not live-tested; write path queues approval |
 | DriveCentric | Wrapped | 24 extension parser tests + normalized ingestion fixture | Read/ingest fixture-tested; no automatic sending |
 | RouteOne / Bank Brain | Wrapped | Existing import/rebuild boundaries + fixture test | Not portal-tested; review required |
@@ -59,13 +65,15 @@ run during this phase.
 
 - `pnpm typecheck`: passed
 - `pnpm lint`: passed (warnings only in preserved imported code)
-- `pnpm test`: 91 tests passed
-- `python -m pytest -q`: 89 tests passed
+- `pnpm test`: 104 tests passed
+- `python -m pytest -q`: 91 tests passed
 - `pnpm build`: passed for all 14 workspace projects
-- `pnpm security:check`: passed across 479 tracked and pending files
+- `pnpm security:check`: passed across 485 tracked and pending files
 - Prisma validate and client generation: passed
 - `pnpm db:deploy`: passed against PostgreSQL 16 in GitHub Actions
 - Gateway health and auth smoke: passed
+- Unified inventory browser smoke: 1,115 VIN records, 1,053 active, 62 in
+  transit; search/detail and last-good-data behavior passed
 - Real Local Agent DPAPI registration/startup/heartbeat smoke: passed; temporary
   encrypted config and processes were removed
 - Full GitHub Actions validation passed in
