@@ -56,9 +56,9 @@ run during this phase.
 - `pnpm typecheck`: passed
 - `pnpm lint`: passed (warnings only in preserved imported code)
 - `pnpm test`: 91 tests passed
-- `python -m pytest -q`: 80 tests passed
+- `python -m pytest -q`: 82 tests passed
 - `pnpm build`: passed for all 14 workspace projects
-- `pnpm security:check`: passed across 478 tracked and pending files
+- `pnpm security:check`: passed across 479 tracked and pending files
 - Prisma validate and client generation: passed
 - `pnpm db:deploy`: passed against PostgreSQL 16 in GitHub Actions
 - Gateway health and auth smoke: passed
@@ -86,6 +86,8 @@ run during this phase.
 
 The tracked Facebook session-cookie file was removed and its class of artifact
 is now ignored/scanned. Revoke or rotate that Facebook session before any live
-testing because Git history still contains the prior value. Also remove the
-legacy hard-coded local `admin:adminnn` credential before exposing the legacy
-service; the new gateway does not depend on it.
+testing because Git history still contains the prior value. The legacy
+hard-coded Basic credential was also removed from both service copies. The
+legacy compatibility header is generated only when explicit environment
+credentials are supplied, and missing configuration creates no default admin.
+The new gateway does not depend on legacy Basic authentication.

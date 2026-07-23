@@ -74,3 +74,7 @@ packages/database/generated/
 **/credit-applications/
 **/customer-exports/
 **/vendor-reports/
+
+# Legacy runtime/test output (existing tracked fixtures remain tracked)
+data/carfax_summaries/*.json
+data/latest/*.backup.json

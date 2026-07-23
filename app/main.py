@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import json
 from pathlib import Path
 
@@ -14,7 +13,13 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .api import router as api_router
-from .security import authenticate_basic_header, current_user_from_auth_header, current_user_from_session_cookie, issue_session_cookie
+from .security import (
+    authenticate_basic_header,
+    configured_basic_auth_header,
+    current_user_from_auth_header,
+    current_user_from_session_cookie,
+    issue_session_cookie,
+)
 
 APP_DIR = Path(__file__).resolve().parent
 ROOT_DIR = APP_DIR.parent
@@ -47,10 +52,10 @@ SALES_INDEX_HTML = _read_text_if_exists(SALES_INDEX_FILE)
 
 
 def _admin_bootstrap_script() -> str:
-    username = "admin"
-    password = "adminnn"
-    token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
-    payload = json.dumps(f"Basic {token}")
+    auth_header = configured_basic_auth_header()
+    if auth_header is None:
+        return ""
+    payload = json.dumps(auth_header)
     return f"<script>window.__XCONSOLE_BASIC_AUTH__={payload};</script>"
 
 

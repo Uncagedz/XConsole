@@ -613,7 +613,18 @@ def test_sync_live_inventory_persists_when_items_exist(monkeypatch, tmp_path):
 
     monkeypatch.setattr(api, "INVENTORY_LIVE_CACHE_PATH", live_path)
     monkeypatch.setattr(api, "INVENTORY_LIVE_META_PATH", meta_path)
+    monkeypatch.setattr(
+        api,
+        "INVENTORY_LIVE_BACKUP_PATH",
+        tmp_path / "inventory_live.backup.json",
+    )
+    monkeypatch.setattr(
+        api,
+        "INVENTORY_LIVE_META_BACKUP_PATH",
+        tmp_path / "inventory_meta.backup.json",
+    )
     monkeypatch.setattr(api, "INVENTORY_SNAPSHOT_PATH", snapshot_path)
+    monkeypatch.setattr(api, "CARFAX_SUMMARY_DIR", tmp_path / "carfax_summaries")
     monkeypatch.setattr(api, "_default_inventory_source_url", lambda: "https://dealer.example/new")
     monkeypatch.setattr(
         api,

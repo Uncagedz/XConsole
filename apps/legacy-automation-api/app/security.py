@@ -32,6 +32,8 @@ OPERATOR_PERMISSIONS: list[str] = [
     "bankbrain.view",
 ]
 
+EPHEMERAL_SESSION_SECRET = secrets.token_urlsafe(48)
+
 
 def _security_path() -> Path:
     explicit = str(os.getenv("XCONSOLE_SECURITY_PATH", "")).strip()
@@ -90,9 +92,29 @@ def _normalize_permissions(raw: Any, *, role: str | None = None) -> list[str]:
     return sorted(set(normalized), key=DEFAULT_PERMISSIONS.index)
 
 
-def _default_admin_record(existing: dict[str, Any] | None = None) -> dict[str, Any]:
-    username = str(os.getenv("XCONSOLE_BASIC_AUTH_USER", "admin")).strip() or "admin"
-    password = str(os.getenv("XCONSOLE_BASIC_AUTH_PASSWORD", "adminnn")).strip() or "adminnn"
+def configured_basic_auth_credentials() -> tuple[str, str] | None:
+    username = str(os.getenv("XCONSOLE_BASIC_AUTH_USER", "")).strip()
+    password = str(os.getenv("XCONSOLE_BASIC_AUTH_PASSWORD", "")).strip()
+    if not username or not password:
+        return None
+    return username, password
+
+
+def configured_basic_auth_header() -> str | None:
+    credentials = configured_basic_auth_credentials()
+    if credentials is None:
+        return None
+    username, password = credentials
+    token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+    return f"Basic {token}"
+
+
+def _default_admin_record(
+    *,
+    username: str,
+    password: str,
+    existing: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     salt, digest = _hash_password(password)
     now = _utc_now()
     base = dict(existing or {})
@@ -148,8 +170,14 @@ def ensure_user_store() -> dict[str, Any]:
             continue
         users_by_name[normalized["username"].lower()] = normalized
 
-    env_username = str(os.getenv("XCONSOLE_BASIC_AUTH_USER", "admin")).strip() or "admin"
-    users_by_name[env_username.lower()] = _default_admin_record(users_by_name.get(env_username.lower()))
+    configured_credentials = configured_basic_auth_credentials()
+    if configured_credentials is not None:
+        env_username, env_password = configured_credentials
+        users_by_name[env_username.lower()] = _default_admin_record(
+            username=env_username,
+            password=env_password,
+            existing=users_by_name.get(env_username.lower()),
+        )
 
     users = sorted(users_by_name.values(), key=lambda item: (item.get("role") != "admin", item.get("username", "")))
     result = {
@@ -299,9 +327,13 @@ def _session_cookie_secret() -> str:
     explicit = str(os.getenv("XCONSOLE_SESSION_SECRET", "")).strip()
     if explicit:
         return explicit
-    admin_user = str(os.getenv("XCONSOLE_BASIC_AUTH_USER", "admin")).strip() or "admin"
-    admin_pass = str(os.getenv("XCONSOLE_BASIC_AUTH_PASSWORD", "adminnn")).strip() or "adminnn"
-    return f"xconsole-session::{admin_user}::{admin_pass}"
+    configured_credentials = configured_basic_auth_credentials()
+    if configured_credentials is None:
+        return EPHEMERAL_SESSION_SECRET
+    admin_user, admin_pass = configured_credentials
+    return hashlib.sha256(
+        f"xconsole-session::{admin_user}::{admin_pass}".encode("utf-8")
+    ).hexdigest()
 
 
 def issue_session_cookie(username: str) -> str:

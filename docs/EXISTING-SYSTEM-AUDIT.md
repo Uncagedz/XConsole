@@ -63,8 +63,8 @@ Severity is relative to this personal system, not to a public SaaS product.
 | Severity | Finding | Evidence / impact | Required treatment |
 | --- | --- | --- | --- |
 | Critical | Browser authentication state is committed | `data/facebook_session_cookies.json` is tracked and contains cookie values | Remove from the branch, ignore all browser state, rotate/revoke the affected Facebook session |
-| Critical | Fixed admin credentials are injected into HTML | `app/main.py` generates a Basic token for `admin:adminnn` | Do not expose this bootstrap path in the gateway; require configured secrets and authenticated API sessions |
-| High | Default Basic credentials exist in server code | `app/security.py` falls back to `admin/adminnn` | Fail closed outside explicit local development |
+| Resolved in Phase 1 hardening | Fixed admin credentials were injected into HTML | The fixed bootstrap value was removed from both legacy copies; the compatibility header is present only when explicit environment credentials are configured | Keep the legacy adapter local and prefer authenticated gateway sessions |
+| Resolved in Phase 1 hardening | Default Basic credentials existed in server code | Missing environment credentials now create no admin and no Basic header; session signing uses an ephemeral process secret unless explicitly configured | Set unique secrets only when the legacy adapter is intentionally enabled |
 | High | API routes are broadly exempted from the top-level auth middleware | `/api/*` is passed through in `app/main.py`; enforcement is inconsistent at handler level | Put authenticated gateway routes in front of the adapter |
 | High | CORS allows `*` with credentials | `app/main.py` | Replace with explicit dashboard/extension origins |
 | High | Selenium and browser profiles are designed to run in the cloud container | Root Docker/Railway path | Move browser execution to Local Agent; retain cloud-safe parsing/import routes only |
