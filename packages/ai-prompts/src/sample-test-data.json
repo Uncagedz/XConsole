@@ -1,0 +1,17 @@
+{
+  "lead": {
+    "conversationId": "demo-lead-001",
+    "customerName": "Jordan Ellis",
+    "vehicleOfInterest": "2025 Ford F-150 XLT",
+    "stockNumber": "FT1234",
+    "tradeInfo": "2018 Toyota Camry, 84k miles, possible payoff",
+    "paymentBudgetHints": "$600 per month target",
+    "leadSource": "Cars.com",
+    "appointmentStatus": "not set",
+    "salespersonName": "Avery Sales",
+    "priorMessages": [
+      "Is this truck still available?",
+      "I have a trade and want to stay around 600 a month."
+    ]
+  }
+}

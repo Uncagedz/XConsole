@@ -1,0 +1,2 @@
+ALTER TABLE "User"
+ADD COLUMN "bonusDailyRequestLimit" INTEGER NOT NULL DEFAULT 0;

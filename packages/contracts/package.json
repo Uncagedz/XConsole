@@ -1,0 +1,23 @@
+{
+  "name": "@drivecentric-ai/shared",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "eslint \"src/**/*.ts\""
+  },
+  "dependencies": {
+    "zipcodes": "^8.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/zipcodes": "^8.0.5",
+    "vitest": "^2.1.9"
+  }
+}

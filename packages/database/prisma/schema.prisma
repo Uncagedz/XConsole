@@ -1,0 +1,828 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  MANAGER
+  BDC
+  SALESPERSON
+}
+
+enum UserStatus {
+  ACTIVE
+  SLEEPING
+  DISABLED
+  PASSWORD_RESET_REQUIRED
+}
+
+enum CreditLedgerType {
+  FREE_GRANT
+  RECHARGE
+  TRANSFER_IN
+  TRANSFER_OUT
+  USAGE_DEBIT
+  ADJUSTMENT
+}
+
+enum MessageChannel {
+  SMS
+  EMAIL
+  CRM_NOTE
+}
+
+enum MessageTone {
+  STANDARD_CLOSER
+  SOFT_CONSULTATIVE
+  AGGRESSIVE_APPOINTMENT_SETTER
+  MANAGER_TAKEOVER
+}
+
+model Dealership {
+  id                     String           @id @default(cuid())
+  name                   String
+  slug                   String           @unique
+  isActive               Boolean          @default(true)
+  aiEnabled              Boolean          @default(true)
+  dailyTokenLimit        Int              @default(250000)
+  monthlyTokenLimit      Int              @default(5000000)
+  settings               Json             @default("{}")
+  extensionMinVersion    String           @default("0.1.0")
+  extensionLatestVersion String           @default("0.1.0")
+  supportEmail           String?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+  users                  User[]
+  workflowRules          WorkflowRule[]
+  promptTemplates        PromptTemplate[]
+  usageLogs              UsageLog[]
+  messageLogs            MessageLog[]
+  creditLedger           CreditLedger[]
+  auditLogs              AuditLog[]
+}
+
+model User {
+  id                  String       @id @default(cuid())
+  userId              String       @unique
+  email               String       @unique
+  name                String
+  signatureName       String?
+  signatureDealershipName String?
+  firstName           String?
+  lastName            String?
+  displayName         String?
+  dateOfBirth         DateTime?
+  hometown            String?
+  movedHereReason     String?
+  yearsSellingCars    Int?
+  previousCareer      String?
+  militaryService     String?
+  favoriteLocalSpot   String?
+  personalWhy         String?
+  customerBio         String?
+  bioCompletedAt      DateTime?
+  passwordHash        String
+  role                Role
+  status              UserStatus   @default(ACTIVE)
+  aiEnabled           Boolean      @default(true)
+  permissions         String[]     @default([])
+  accessibleProfileRoles String[]  @default([])
+  dailyRequestLimit   Int?
+  bonusDailyRequestLimit Int     @default(0)
+  monthlyRequestLimit Int?
+  dailyTokenLimit     Int?
+  creditBalanceMicros Int        @default(1000000)
+  freeCreditGrantedMicros Int    @default(1000000)
+  lifetimeCreditMicros Int       @default(1000000)
+  lastLoginAt         DateTime?
+  dealershipId        String
+  dealership          Dealership   @relation(fields: [dealershipId], references: [id], onDelete: Cascade)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  sessions            Session[]
+  usageLogs           UsageLog[]
+  messageLogs         MessageLog[]
+  creditLedger        CreditLedger[]
+  creditedLedgerEntries CreditLedger[] @relation("ActorCreditLedger")
+  auditLogs           AuditLog[]   @relation("ActorAuditLogs")
+
+  @@index([dealershipId, role])
+  @@index([status])
+}
+
+model Session {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String
+  userAgent        String?
+  ip               String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model PromptTemplate {
+  id           String          @id @default(cuid())
+  dealershipId String
+  dealership   Dealership      @relation(fields: [dealershipId], references: [id], onDelete: Cascade)
+  key          String
+  name         String
+  channel      MessageChannel?
+  action       String?
+  content      String
+  isActive     Boolean         @default(true)
+  version      String          @default("1")
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([dealershipId, key])
+  @@index([dealershipId, isActive])
+}
+
+model WorkflowRule {
+  id           String     @id @default(cuid())
+  dealershipId String
+  dealership   Dealership @relation(fields: [dealershipId], references: [id], onDelete: Cascade)
+  key          String
+  title        String
+  config       Json
+  sortOrder    Int        @default(0)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([dealershipId, key])
+  @@index([dealershipId, isActive])
+}
+
+model UsageLog {
+  id               String     @id @default(cuid())
+  dealershipId     String
+  dealership       Dealership @relation(fields: [dealershipId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId   String
+  requestId        String     @unique
+  day              DateTime
+  provider         String
+  model            String
+  inputTokens      Int
+  outputTokens     Int
+  totalTokens      Int
+  estimatedCostUsd Decimal    @db.Decimal(12, 6)
+  createdAt        DateTime   @default(now())
+
+  @@index([dealershipId, day])
+  @@index([userId, day])
+  @@index([conversationId])
+}
+
+model CreditLedger {
+  id             String           @id @default(cuid())
+  dealershipId   String
+  dealership     Dealership       @relation(fields: [dealershipId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  actorUserId    String?
+  actor          User?            @relation("ActorCreditLedger", fields: [actorUserId], references: [id], onDelete: SetNull)
+  type           CreditLedgerType
+  amountMicros   Int
+  costMicros     Int              @default(0)
+  profitMicros   Int              @default(0)
+  markupBps      Int?
+  requestId      String?
+  note           String?
+  metadata       Json             @default("{}")
+  createdAt      DateTime         @default(now())
+
+  @@index([dealershipId, createdAt])
+  @@index([userId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([requestId])
+}
+
+model MessageLog {
+  id             String         @id @default(cuid())
+  dealershipId   String
+  dealership     Dealership     @relation(fields: [dealershipId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String
+  channel        MessageChannel
+  tone           MessageTone
+  action         String
+  leadContext    Json
+  prompt         String
+  output         Json
+  evaluator      Json
+  flagged        Boolean        @default(false)
+  flags          String[]       @default([])
+  createdAt      DateTime       @default(now())
+
+  @@index([dealershipId, createdAt])
+  @@index([userId, createdAt])
+  @@index([conversationId])
+  @@index([flagged])
+}
+
+model AuditLog {
+  id           String      @id @default(cuid())
+  dealershipId String?
+  dealership   Dealership? @relation(fields: [dealershipId], references: [id], onDelete: SetNull)
+  actorUserId  String?
+  actor        User?       @relation("ActorAuditLogs", fields: [actorUserId], references: [id], onDelete: SetNull)
+  action       String
+  targetType   String
+  targetId     String?
+  metadata     Json        @default("{}")
+  ip           String?
+  userAgent    String?
+  createdAt    DateTime    @default(now())
+
+  @@index([dealershipId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([action])
+}
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+enum ConnectorExecutionLocation {
+  RAILWAY
+  LOCAL_AGENT
+  EXTENSION
+}
+
+enum ConnectorAuthenticationStatus {
+  NOT_CONFIGURED
+  AUTHENTICATED
+  REAUTHENTICATION_REQUIRED
+  ERROR
+}
+
+enum ConnectorRunStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum AutomationJobStatus {
+  PENDING
+  APPROVAL_REQUIRED
+  APPROVED
+  LEASED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum MarketplacePlatform {
+  FACEBOOK
+  CRAIGSLIST
+  OFFERUP
+}
+
+enum MarketplaceListingStatus {
+  DRAFT
+  APPROVAL_REQUIRED
+  QUEUED
+  POSTING
+  LIVE
+  FAILED
+  REMOVED
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUPERSEDED
+}
+
+model Device {
+  id                    String   @id @default(cuid())
+  userId                String
+  name                  String
+  platform              String
+  tokenHash             String
+  tokenVersion          Int      @default(1)
+  capabilities          String[] @default([])
+  lastHeartbeatAt       DateTime?
+  lastHeartbeat         Json?
+  registeredAt          DateTime @default(now())
+  revokedAt             DateTime?
+  encryptedConfigFormat String?
+  jobs                  AutomationJob[]
+
+  @@index([userId])
+  @@index([lastHeartbeatAt])
+}
+
+model Vehicle {
+  id                 String   @id @default(cuid())
+  vin                String   @unique @db.VarChar(17)
+  stockNumber        String?
+  year               Int?
+  make               String?
+  model              String?
+  trim               String?
+  mileage            Int?
+  retailPrice        Decimal? @db.Decimal(12, 2)
+  cost               Decimal? @db.Decimal(12, 2)
+  daysInStock        Int?
+  websiteUrl         String?
+  photos             Json     @default("[]")
+  salesTalkingPoints Json     @default("[]")
+  firstSeenAt        DateTime  @default(now())
+  lastSeenAt         DateTime  @default(now())
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  sourceSnapshots    VehicleSourceSnapshot[]
+  inventoryStatuses  InventoryStatus[]
+  reconRecords       ReconRecord[]
+  keyRecords         KeyRecord[]
+  carfaxSummary      CarfaxSummary?
+  windowStickers     WindowSticker[]
+  appraisals         Appraisal[]
+  marketplaceListings MarketplaceListing[]
+  leads              Lead[]
+  dealStructures     DealStructure[]
+
+  @@index([stockNumber])
+  @@index([make, model, year])
+}
+
+model VehicleSourceSnapshot {
+  id          String   @id @default(cuid())
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  connectorId String
+  sourceKey   String?
+  payload     Json
+  checksum    String?
+  observedAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([vehicleId, connectorId, observedAt])
+  @@index([connectorId, sourceKey])
+}
+
+model InventoryStatus {
+  id             String   @id @default(cuid())
+  vehicleId      String
+  vehicle        Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  connectorId    String
+  status         String
+  frontlineReady Boolean?
+  listed         Boolean?
+  price          Decimal? @db.Decimal(12, 2)
+  sourceUrl      String?
+  synchronizedAt DateTime @default(now())
+  details        Json     @default("{}")
+
+  @@unique([vehicleId, connectorId])
+  @@index([connectorId, synchronizedAt])
+}
+
+model Customer {
+  id                    String   @id @default(cuid())
+  externalIds           Json     @default("{}")
+  name                  String?
+  phone                 String?
+  email                 String?
+  assignedSalesperson   String?
+  aiSummary             String?
+  objections            Json     @default("[]")
+  tradeInformation      Json     @default("{}")
+  leadPriority          Int?
+  nextRecommendedAction String?
+  lastContactAt         DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  leads                 Lead[]
+  conversations         Conversation[]
+  appointments          Appointment[]
+  tasks                 Task[]
+
+  @@index([phone])
+  @@index([email])
+  @@index([lastContactAt])
+}
+
+model Lead {
+  id                     String   @id @default(cuid())
+  customerId             String
+  customer               Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  vehicleId              String?
+  vehicle                Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  source                  String
+  externalId             String?
+  status                  String
+  priority                Int?
+  context                 Json     @default("{}")
+  draftResponse           String?
+  responseApprovalStatus  String?
+  lastActivityAt          DateTime?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  conversations           Conversation[]
+  tasks                   Task[]
+
+  @@unique([source, externalId])
+  @@index([customerId, status])
+  @@index([vehicleId])
+}
+
+model Conversation {
+  id          String   @id @default(cuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  leadId      String?
+  lead        Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  externalId  String?
+  channel     String
+  summary     String?
+  startedAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  messages    Message[]
+
+  @@index([customerId, updatedAt])
+  @@index([leadId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  externalId     String?
+  direction      String
+  channel        String
+  sender         String?
+  body           String
+  sentAt         DateTime
+  rawMetadata    Json         @default("{}")
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, sentAt])
+}
+
+model Appointment {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  status     String
+  startsAt   DateTime
+  endsAt     DateTime?
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([customerId, startsAt])
+}
+
+model Task {
+  id          String   @id @default(cuid())
+  customerId  String?
+  customer    Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  leadId      String?
+  lead        Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  title       String
+  description String?
+  status      String
+  priority    Int      @default(0)
+  dueAt       DateTime?
+  approvedAt  DateTime?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status, dueAt])
+  @@index([customerId])
+  @@index([leadId])
+}
+
+model ReconRecord {
+  id          String   @id @default(cuid())
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  connectorId String
+  stage       String?
+  openWork    Json     @default("[]")
+  targetAt    DateTime?
+  completedAt DateTime?
+  observedAt  DateTime @default(now())
+
+  @@index([vehicleId, observedAt])
+}
+
+model KeyRecord {
+  id          String   @id @default(cuid())
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  connectorId String
+  location    String?
+  holder      String?
+  observedAt  DateTime @default(now())
+
+  @@index([vehicleId, observedAt])
+}
+
+model CarfaxSummary {
+  id          String   @id @default(cuid())
+  vehicleId   String   @unique
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  owners      Int?
+  accidents   Int?
+  service     String?
+  highlights  Json     @default("[]")
+  reportUrl   String?
+  observedAt  DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model WindowSticker {
+  id          String   @id @default(cuid())
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  source      String
+  url         String?
+  storageKey  String?
+  metadata    Json     @default("{}")
+  observedAt  DateTime @default(now())
+
+  @@index([vehicleId, observedAt])
+}
+
+model Appraisal {
+  id          String   @id @default(cuid())
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  source      String
+  value       Decimal  @db.Decimal(12, 2)
+  condition   String?
+  details     Json     @default("{}")
+  appraisedAt DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([vehicleId, appraisedAt])
+}
+
+model MarketplaceListing {
+  id             String                   @id @default(cuid())
+  vehicleId      String
+  vehicle        Vehicle                  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  platform       MarketplacePlatform
+  status         MarketplaceListingStatus @default(DRAFT)
+  externalId     String?
+  externalUrl    String?
+  title          String
+  description    String
+  price          Decimal?                 @db.Decimal(12, 2)
+  approvedAt     DateTime?
+  publishedAt    DateTime?
+  lastCheckedAt  DateTime?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  attempts       MarketplacePostingAttempt[]
+
+  @@unique([vehicleId, platform])
+  @@index([platform, status])
+}
+
+model MarketplacePostingAttempt {
+  id                String                   @id @default(cuid())
+  listingId         String
+  listing           MarketplaceListing       @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  connectorRunId    String?
+  startedAt         DateTime                 @default(now())
+  finishedAt        DateTime?
+  success           Boolean?
+  retryCount        Int                      @default(0)
+  errorType         String?
+  errorMessage      String?
+  screenshotPath    String?
+  htmlSnapshotPath  String?
+  result            Json                     @default("{}")
+
+  @@index([listingId, startedAt])
+  @@index([connectorRunId])
+}
+
+model Lender {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  programs  LenderProgram[]
+}
+
+model LenderProgram {
+  id          String   @id @default(cuid())
+  lenderId    String
+  lender      Lender   @relation(fields: [lenderId], references: [id], onDelete: Cascade)
+  name        String
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  versions    LenderProgramVersion[]
+
+  @@unique([lenderId, name])
+}
+
+model LenderProgramVersion {
+  id              String       @id @default(cuid())
+  lenderProgramId String
+  lenderProgram   LenderProgram @relation(fields: [lenderProgramId], references: [id], onDelete: Cascade)
+  version         Int
+  sourceDocument  String
+  effectiveDate   DateTime?
+  importDate      DateTime      @default(now())
+  reviewStatus    ReviewStatus  @default(PENDING)
+  confidence      Decimal?      @db.Decimal(5, 4)
+  lastVerifiedAt  DateTime?
+  supersededAt    DateTime?
+  notes           String?
+  approvedAt      DateTime?
+  rules           LenderRule[]
+
+  @@unique([lenderProgramId, version])
+  @@index([reviewStatus, effectiveDate])
+}
+
+model LenderRule {
+  id                     String               @id @default(cuid())
+  lenderProgramVersionId String
+  lenderProgramVersion   LenderProgramVersion @relation(fields: [lenderProgramVersionId], references: [id], onDelete: Cascade)
+  ruleType               String
+  field                  String
+  operator               String
+  value                  Json
+  sourceReference        String?
+  notes                  String?
+  createdAt              DateTime             @default(now())
+
+  @@index([lenderProgramVersionId, ruleType])
+}
+
+model DealStructure {
+  id             String   @id @default(cuid())
+  vehicleId      String?
+  vehicle        Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  customerRef    String?
+  salePrice      Decimal? @db.Decimal(12, 2)
+  downPayment    Decimal? @db.Decimal(12, 2)
+  tradeAllowance Decimal? @db.Decimal(12, 2)
+  termMonths     Int?
+  apr            Decimal? @db.Decimal(7, 4)
+  inputs         Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  recommendations ApprovalRecommendation[]
+}
+
+model ApprovalRecommendation {
+  id                     String   @id @default(cuid())
+  dealStructureId        String
+  dealStructure          DealStructure @relation(fields: [dealStructureId], references: [id], onDelete: Cascade)
+  lenderProgramVersionId String
+  score                  Decimal? @db.Decimal(7, 4)
+  eligible               Boolean
+  reasons                Json     @default("[]")
+  warnings               Json     @default("[]")
+  createdAt              DateTime @default(now())
+
+  @@index([dealStructureId, score])
+  @@index([lenderProgramVersionId])
+}
+
+model Connector {
+  id                       String                        @id
+  displayName              String
+  enabled                  Boolean                       @default(false)
+  executionLocation        ConnectorExecutionLocation
+  authenticationStatus     ConnectorAuthenticationStatus @default(NOT_CONFIGURED)
+  capabilities             String[]                      @default([])
+  configuration            Json                          @default("{}")
+  lastAttemptedAt          DateTime?
+  lastSuccessfulAt         DateTime?
+  lastDurationMs           Int?
+  lastRecordsUpdated       Int                           @default(0)
+  currentError             String?
+  reauthenticationRequired Boolean                       @default(false)
+  createdAt                DateTime                      @default(now())
+  updatedAt                DateTime                      @updatedAt
+  runs                     ConnectorRun[]
+  errors                   ConnectorError[]
+  jobs                     AutomationJob[]
+}
+
+model ConnectorRun {
+  id                       String             @id @default(cuid())
+  connectorId              String
+  connector                Connector          @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  status                   ConnectorRunStatus @default(RUNNING)
+  startedAt                DateTime           @default(now())
+  finishedAt               DateTime?
+  durationMs               Int?
+  recordsFound             Int                @default(0)
+  recordsCreated           Int                @default(0)
+  recordsUpdated           Int                @default(0)
+  recordsSkipped           Int                @default(0)
+  errorType                String?
+  errorMessage             String?
+  screenshotPath           String?
+  htmlSnapshotPath         String?
+  reauthenticationRequired Boolean            @default(false)
+  retryCount               Int                @default(0)
+  lastSuccessfulSyncAt     DateTime?
+  metadata                 Json               @default("{}")
+  errors                   ConnectorError[]
+
+  @@index([connectorId, startedAt])
+  @@index([status, startedAt])
+}
+
+model ConnectorError {
+  id                       String        @id @default(cuid())
+  connectorId              String
+  connector                Connector     @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  connectorRunId           String?
+  connectorRun             ConnectorRun? @relation(fields: [connectorRunId], references: [id], onDelete: SetNull)
+  type                     String
+  message                  String
+  details                  Json          @default("{}")
+  screenshotPath           String?
+  htmlSnapshotPath         String?
+  reauthenticationRequired Boolean       @default(false)
+  resolvedAt               DateTime?
+  createdAt                DateTime      @default(now())
+
+  @@index([connectorId, createdAt])
+  @@index([connectorRunId])
+}
+
+model AutomationJob {
+  id             String              @id @default(cuid())
+  connectorId    String
+  connector      Connector           @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  deviceId       String?
+  device         Device?             @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  status         AutomationJobStatus @default(PENDING)
+  operation      String
+  payload        Json                @default("{}")
+  idempotencyKey String              @unique
+  approvalReason String?
+  approvedAt     DateTime?
+  leaseTokenHash String?
+  leasedUntil    DateTime?
+  attemptCount   Int                 @default(0)
+  maxAttempts    Int                 @default(3)
+  result         Json?
+  error          Json?
+  scheduledAt    DateTime            @default(now())
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([status, scheduledAt])
+  @@index([deviceId, status])
+}
+
+model AiGeneration {
+  id             String   @id @default(cuid())
+  userId         String?
+  leadId         String?
+  conversationId String?
+  provider       String
+  model          String
+  purpose        String
+  promptVersion  String?
+  inputSummary   Json     @default("{}")
+  output         Json
+  evaluation     Json     @default("{}")
+  approved       Boolean?
+  createdAt      DateTime @default(now())
+
+  @@index([leadId, createdAt])
+  @@index([conversationId, createdAt])
+}

@@ -1,0 +1,25 @@
+{
+  "version": "2026-04-demo",
+  "leadStages": ["new", "attempted_contact", "engaged", "appointment_set", "sold"],
+  "followUpTiming": [
+    {
+      "stage": "new",
+      "afterMinutes": 0,
+      "action": "Respond immediately, answer first, and ask the lightest useful next question."
+    }
+  ],
+  "objectionPlaybooks": {
+    "price": ["Acknowledge price concern", "Move to verified value and numbers"],
+    "trade": ["Ask for VIN, miles, payoff", "Push for in-person appraisal"]
+  },
+  "escalationRules": [
+    {
+      "name": "manager_requested",
+      "when": "Customer asks for manager",
+      "action": "Suggest manager takeover"
+    }
+  ],
+  "compliancePhrases": ["I can verify that for you."],
+  "prohibitedPhrases": ["You are approved", "I guarantee"],
+  "managerEscalationTriggers": ["manager", "lawsuit", "angry"]
+}
