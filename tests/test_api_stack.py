@@ -984,6 +984,27 @@ def test_lifted_source_is_tagged_without_losing_detail_url_condition():
     assert items[0]["source_urls"] == [api.DEFAULT_DEALERSHIP_LIFTED_TRUCKS_URL]
 
 
+def test_new_inventory_status_feeds_tag_transit_and_factory_units():
+    record = {
+        "vin": "1C4RJHBG0RC123456",
+        "title": "2026 Jeep Grand Cherokee",
+        "url": "/new/Jeep/2026-Jeep-Grand-Cherokee.htm",
+    }
+    transit = api._normalize_inventory_records(
+        [record],
+        source_url=f"{api.DEFAULT_DEALERSHIP_NEW_INVENTORY_URL}?status=7-7",
+    )[0]
+    being_built = api._normalize_inventory_records(
+        [record],
+        source_url=f"{api.DEFAULT_DEALERSHIP_NEW_INVENTORY_URL}?status=13-13",
+    )[0]
+
+    assert transit["status_label"] == "In Transit"
+    assert being_built["status_label"] == "Being Built"
+    assert api._is_active_inventory_item(transit) is False
+    assert api._is_active_inventory_item(being_built) is False
+
+
 def test_merge_inventory_sources_preserves_rich_fields_and_manual_overrides():
     vin = "1C6SRFFT0RN123456"
     merged = api._merge_inventory_sources(
@@ -1027,6 +1048,19 @@ def test_merge_inventory_sources_preserves_rich_fields_and_manual_overrides():
         api.DEFAULT_DEALERSHIP_INVENTORY_URL,
         api.DEFAULT_DEALERSHIP_LIFTED_TRUCKS_URL,
     ]
+
+
+def test_merge_inventory_sources_prefers_specific_delivery_status():
+    vin = "1C4RJHBG0RC123456"
+    merged = api._merge_inventory_sources(
+        [
+            {"vin": vin, "title": "2026 Jeep Grand Cherokee", "status_label": "Ready"},
+            {"vin": vin, "title": "2026 Jeep Grand Cherokee", "status_label": "In Transit"},
+        ],
+        [],
+    )
+
+    assert merged[0]["status_label"] == "In Transit"
 
 
 def test_select_vehicle_photo_urls_default_skip_thumbnail_indexes():

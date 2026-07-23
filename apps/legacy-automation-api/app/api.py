@@ -3702,11 +3702,17 @@ def _inventory_source_metadata(source_url: str | None, detail_url: str | None = 
         category = "used"
     is_lifted = "lifted-truck" in source.lower() or "lifted_truck" in source.lower()
     collections = ["lifted-trucks"] if is_lifted else []
+    source_status = None
+    if re.search(r"[?&]status=7-7(?:&|$)", source, flags=re.IGNORECASE):
+        source_status = "In Transit"
+    elif re.search(r"[?&]status=13-13(?:&|$)", source, flags=re.IGNORECASE):
+        source_status = "Being Built"
     return {
         "inventory_category": category,
         "is_lifted": is_lifted,
         "source_collections": collections,
         "source_urls": [source] if source else [],
+        "status_label": source_status,
     }
 
 
@@ -3818,7 +3824,7 @@ def _normalize_inventory_records(records: list[dict[str, Any]], *, source_url: s
                 ("interior", "int_color", "interior_color", "vehicleInteriorColor"),
             ),
             "photos": photos,
-            "status_label": _normalize_status_label(item, offers),
+            "status_label": source_metadata["status_label"] or _normalize_status_label(item, offers),
             "inventory_category": inventory_category,
             "stock_number": _value_for_keys(item, ("stock_number", "stockNumber", "stock")),
             "carfax_url": carfax_url,
@@ -3986,7 +3992,7 @@ def _load_inventory_candidates() -> list[dict[str, Any]]:
 
 def _is_active_inventory_item(item: dict[str, Any]) -> bool:
     status = str(item.get("status_label") or item.get("status") or "").strip().lower()
-    if "transit" in status or "factory" in status:
+    if "transit" in status or "factory" in status or "being built" in status:
         return False
     return True
 
@@ -4366,6 +4372,27 @@ def _sync_live_inventory(
     persist: bool,
 ) -> dict[str, Any]:
     target_sources = _split_inventory_source_urls(source_url) or _default_inventory_source_urls()
+    expanded_sources: list[str] = []
+    seen_sources: set[str] = set()
+    for target_source in target_sources:
+        candidates = [target_source]
+        if "new-inventory/index.htm" in target_source.lower() and not re.search(
+            r"[?&]status=", target_source, flags=re.IGNORECASE
+        ):
+            separator = "&" if "?" in target_source else "?"
+            candidates.extend(
+                [
+                    f"{target_source}{separator}status=7-7",
+                    f"{target_source}{separator}status=13-13",
+                ]
+            )
+        for candidate in candidates:
+            lowered = candidate.lower()
+            if lowered in seen_sources:
+                continue
+            seen_sources.add(lowered)
+            expanded_sources.append(candidate)
+    target_sources = expanded_sources
     fetched_payloads: list[dict[str, Any]] = []
     diagnostics: list[str] = []
     errors: list[dict[str, Any]] = []
@@ -4541,6 +4568,21 @@ def _merge_inventory_sources(
                 continue
             if field == "is_lifted":
                 combined[field] = bool(existing.get(field) or value)
+                continue
+            if field == "status_label":
+                status_priority = {
+                    "": 0,
+                    "ready": 1,
+                    "in stock": 1,
+                    "on the lot": 1,
+                    "in transit": 2,
+                    "being built": 3,
+                    "factory order": 3,
+                }
+                prior_status = str(existing.get(field) or "").strip().lower()
+                incoming_status = str(value or "").strip().lower()
+                if status_priority.get(incoming_status, 1) > status_priority.get(prior_status, 1):
+                    combined[field] = value
                 continue
             if not _meaningful(value):
                 continue
