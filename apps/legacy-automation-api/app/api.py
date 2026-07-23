@@ -6485,6 +6485,82 @@ fetch(arguments[0], {
     return records, notes
 
 
+def _fetch_inventory_listing_pages_via_http(
+    *,
+    source_url: str,
+    starts: list[int],
+    timeout_seconds: float,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Fetch Dealer.com listing pages concurrently after browser discovery.
+
+    The browser remains the source of truth for the live total and pagination
+    shape, but full browser navigation for every page is unnecessarily slow.
+    The same listing HTML is available over HTTP once the correct `start`
+    offsets are known.
+    """
+    notes: list[str] = ["source_mode=http_paginated_inventory"]
+    records: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    unique_starts = sorted({max(0, int(start)) for start in starts})
+    max_workers = min(6, max(1, len(unique_starts)))
+    notes.append(f"http_inventory_pages_planned={len(unique_starts)}")
+    notes.append(f"http_inventory_workers={max_workers}")
+
+    def page_url(start: int) -> str:
+        candidate = re.sub(r"([?&])start=[0-9]+", rf"\1start={start}", source_url)
+        if candidate == source_url:
+            separator = "&" if "?" in source_url else "?"
+            candidate = f"{source_url}{separator}start={start}"
+        return candidate
+
+    def fetch_page(client: httpx.Client, start: int) -> tuple[int, list[dict[str, Any]], str | None]:
+        try:
+            response = client.get(page_url(start))
+            if response.status_code >= 400:
+                return start, [], f"http_status={response.status_code}"
+            raw, _parse_notes = _extract_inventory_dicts_from_html(
+                response.text,
+                source_url=source_url,
+            )
+            return start, _normalize_inventory_records(raw, source_url=source_url), None
+        except Exception as exc:
+            return start, [], str(exc)
+
+    headers = {
+        "user-agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/126.0.0.0 Safari/537.36"
+        ),
+        "accept": "text/html,application/json;q=0.9,*/*;q=0.8",
+        "accept-language": "en-US,en;q=0.9",
+        "cache-control": "no-cache",
+    }
+    with httpx.Client(
+        timeout=max(10.0, min(float(timeout_seconds), 45.0)),
+        follow_redirects=True,
+        headers=headers,
+    ) as client:
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="inventory-page") as executor:
+            futures = [executor.submit(fetch_page, client, start) for start in unique_starts]
+            for future in futures:
+                start, page_records, error = future.result()
+                if error:
+                    notes.append(f"http_inventory_start={start}_error={error}")
+                    continue
+                added = 0
+                for record in page_records:
+                    key = str(record.get("vin") or record.get("detail_url") or record.get("title") or "").lower()
+                    if not key or key in seen:
+                        continue
+                    seen.add(key)
+                    records.append(record)
+                    added += 1
+                notes.append(f"http_inventory_start={start}_new={added}")
+    notes.append(f"http_inventory_records={len(records)}")
+    return records, notes
+
+
 def _fetch_live_inventory_records_via_browser_html(
     *,
     source_url: str,
@@ -6591,8 +6667,10 @@ def _fetch_live_inventory_records_via_browser_html(
                 match = re.search(r"[?&]start=([0-9]+)", href)
                 if match:
                     starts.add(int(match.group(1)))
-        if total_count and page_size > 0:
-            starts.update(range(0, total_count, page_size))
+        discovered_offsets = sorted(start for start in starts if start > 0)
+        effective_page_size = discovered_offsets[0] if discovered_offsets else page_size
+        if total_count and effective_page_size > 0:
+            starts.update(range(0, total_count, effective_page_size))
         return sorted(starts)
 
     try:
@@ -6637,9 +6715,26 @@ def _fetch_live_inventory_records_via_browser_html(
         notes.append(f"browser_total_vehicle_count={total_count or 'unknown'}")
         notes.append(f"browser_page_starts_planned={len(starts)}")
 
+        http_records, http_notes = _fetch_inventory_listing_pages_via_http(
+            source_url=source_url,
+            starts=starts,
+            timeout_seconds=min(45.0, budget_seconds),
+        )
+        notes.extend(http_notes)
+        if len(http_records) > len(records):
+            records = http_records
+            seen = {
+                str(record.get("detail_url") or record.get("vin") or record.get("title") or "").lower()
+                for record in records
+            }
+
+        expected_floor = int(total_count * 0.9) if total_count else 0
         for page_index, start in enumerate(starts):
             if start == 0:
                 continue
+            if expected_floor and len(records) >= expected_floor:
+                notes.append("browser_serial_pagination_skipped=http_result_complete")
+                break
             if time.time() - started_at > budget_seconds - 8:
                 notes.append(f"browser_budget_exhausted_at_start={start}")
                 break
