@@ -70,6 +70,7 @@ INVENTORY_MANUAL_PATH = DATA_DIR / "latest" / "inventory_manual.json"
 JD_POWER_VALUATIONS_PATH = DATA_DIR / "latest" / "jd_power_trade_values.json"
 DEFAULT_DEALERSHIP_INVENTORY_URL = "https://www.tavernachryslerdodgejeepramfiat.com/used-inventory/index.htm"
 DEFAULT_DEALERSHIP_NEW_INVENTORY_URL = "https://www.tavernachryslerdodgejeepramfiat.com/new-inventory/index.htm"
+DEFAULT_DEALERSHIP_LIFTED_TRUCKS_URL = "https://www.tavernachryslerdodgejeepramfiat.com/lifted-trucks.htm"
 DEFAULT_BANK_TAX_RATE = 0.06
 DEFAULT_BANK_FEES = 2400
 FACEBOOK_MARKETPLACE_DEFAULT_LOCATION = os.getenv("FACEBOOK_MARKETPLACE_DEFAULT_LOCATION", "33317").strip() or "33317"
@@ -318,6 +319,7 @@ class DealershipRequest(BaseModel):
     preowned_url: str | None = None
     used_url: str | None = None
     new_url: str | None = None
+    lifted_url: str | None = None
     active: bool = True
 
 
@@ -502,6 +504,7 @@ def _normalize_dealership(raw: Any) -> dict[str, Any] | None:
         "preowned_url": str(raw.get("preowned_url") or raw.get("pre_owned_url") or "").strip(),
         "used_url": str(raw.get("used_url") or raw.get("inventory_url") or "").strip(),
         "new_url": str(raw.get("new_url") or "").strip(),
+        "lifted_url": str(raw.get("lifted_url") or raw.get("lifted_trucks_url") or "").strip(),
     }
     active = bool(raw.get("active", True))
     return {
@@ -523,9 +526,16 @@ def _default_dealerships() -> list[dict[str, Any]]:
             "preowned_url": DEFAULT_DEALERSHIP_INVENTORY_URL,
             "used_url": DEFAULT_DEALERSHIP_INVENTORY_URL,
             "new_url": DEFAULT_DEALERSHIP_NEW_INVENTORY_URL,
+            "lifted_url": DEFAULT_DEALERSHIP_LIFTED_TRUCKS_URL,
             "active": True,
             "source_urls": _split_inventory_source_urls(
-                f"{DEFAULT_DEALERSHIP_INVENTORY_URL}\n{DEFAULT_DEALERSHIP_NEW_INVENTORY_URL}"
+                "\n".join(
+                    [
+                        DEFAULT_DEALERSHIP_INVENTORY_URL,
+                        DEFAULT_DEALERSHIP_NEW_INVENTORY_URL,
+                        DEFAULT_DEALERSHIP_LIFTED_TRUCKS_URL,
+                    ]
+                )
             ),
         }
     ]
@@ -548,6 +558,7 @@ def _save_dealership(request: DealershipRequest) -> dict[str, Any]:
         "preowned_url": str(request.preowned_url or "").strip(),
         "used_url": str(request.used_url or "").strip(),
         "new_url": str(request.new_url or "").strip(),
+        "lifted_url": str(request.lifted_url or "").strip(),
         "active": bool(request.active),
         "updated_at": _utc_now(),
     }
@@ -623,9 +634,16 @@ def _default_inventory_source_urls() -> list[str]:
     add_many(_split_inventory_source_urls(os.getenv("DEALERSHIP_INVENTORY_URLS")))
     used = str(os.getenv("DEALERSHIP_INVENTORY_URL", DEFAULT_DEALERSHIP_INVENTORY_URL)).strip()
     new = str(os.getenv("DEALERSHIP_NEW_INVENTORY_URL", DEFAULT_DEALERSHIP_NEW_INVENTORY_URL)).strip()
-    add_many(_split_inventory_source_urls(", ".join([used, new])))
+    lifted = str(
+        os.getenv("DEALERSHIP_LIFTED_TRUCKS_URL", DEFAULT_DEALERSHIP_LIFTED_TRUCKS_URL)
+    ).strip()
+    add_many(_split_inventory_source_urls(", ".join([used, new, lifted])))
     add_many(_configured_dealership_source_urls())
-    return urls or [DEFAULT_DEALERSHIP_INVENTORY_URL]
+    return urls or [
+        DEFAULT_DEALERSHIP_INVENTORY_URL,
+        DEFAULT_DEALERSHIP_NEW_INVENTORY_URL,
+        DEFAULT_DEALERSHIP_LIFTED_TRUCKS_URL,
+    ]
 
 
 def _to_price_text(value: str | int | float) -> str:
@@ -3672,6 +3690,25 @@ def _normalize_text_value(raw: Any) -> Any:
     return raw
 
 
+def _inventory_source_metadata(source_url: str | None, detail_url: str | None = None) -> dict[str, Any]:
+    source = str(source_url or "").strip()
+    detail = str(detail_url or "").strip()
+    searchable = f"{detail} {source}".lower()
+    category = ""
+    if re.search(r"(?:/|\b)new(?:/|-inventory|\b)", searchable):
+        category = "new"
+    elif re.search(r"(?:/|\b)(?:used|pre-owned|preowned|certified)(?:/|-inventory|\b)", searchable):
+        category = "used"
+    is_lifted = "lifted-truck" in source.lower() or "lifted_truck" in source.lower()
+    collections = ["lifted-trucks"] if is_lifted else []
+    return {
+        "inventory_category": category,
+        "is_lifted": is_lifted,
+        "source_collections": collections,
+        "source_urls": [source] if source else [],
+    }
+
+
 def _normalize_inventory_records(records: list[dict[str, Any]], *, source_url: str | None = None) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -3744,7 +3781,11 @@ def _normalize_inventory_records(records: list[dict[str, Any]], *, source_url: s
         direct_carfax_url = _value_for_keys(item, ("carfax_url", "carfaxUrl", "carfax", "vehicleHistoryUrl"))
         if direct_carfax_url and not carfax_url:
             carfax_url = str(direct_carfax_url).strip()
-        inventory_category = str(_value_for_keys(item, ("inventory_category", "inventoryCategory", "type", "condition")) or "").strip()
+        source_metadata = _inventory_source_metadata(source_url, detail_url)
+        inventory_category = str(
+            _value_for_keys(item, ("inventory_category", "inventoryCategory", "type", "condition"))
+            or source_metadata["inventory_category"]
+        ).strip()
 
         output = {
             "vin": vin or "UNKNOWN",
@@ -3781,6 +3822,9 @@ def _normalize_inventory_records(records: list[dict[str, Any]], *, source_url: s
             "stock_number": _value_for_keys(item, ("stock_number", "stockNumber", "stock")),
             "carfax_url": carfax_url,
             "carfax_facts": carfax_facts,
+            "is_lifted": bool(item.get("is_lifted") or source_metadata["is_lifted"]),
+            "source_collections": source_metadata["source_collections"],
+            "source_urls": source_metadata["source_urls"],
         }
 
         unique_key = output["vin"] if output["vin"] != "UNKNOWN" else (
@@ -4440,7 +4484,51 @@ def _merge_inventory_sources(
     merged_by_key: dict[str, dict[str, Any]] = {}
     order: list[str] = []
 
-    def _put(item: dict[str, Any]) -> None:
+    def _meaningful(value: Any) -> bool:
+        if value is None or value is False:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip()) and value.strip().upper() != "UNKNOWN"
+        if isinstance(value, (list, dict, tuple, set)):
+            return bool(value)
+        return True
+
+    def _unique_list(*values: Any) -> list[Any]:
+        result: list[Any] = []
+        seen_values: set[str] = set()
+        for value in values:
+            candidates = value if isinstance(value, list) else []
+            for candidate in candidates:
+                marker = json.dumps(candidate, sort_keys=True, default=str)
+                if marker in seen_values:
+                    continue
+                seen_values.add(marker)
+                result.append(candidate)
+        return result
+
+    def _combine(existing: dict[str, Any], incoming: dict[str, Any], *, prefer_incoming: bool) -> dict[str, Any]:
+        combined = dict(existing)
+        for field, value in incoming.items():
+            if field in {"photos", "source_urls", "source_collections"}:
+                combined[field] = _unique_list(existing.get(field), value)
+                continue
+            if field == "carfax_facts" and isinstance(value, dict):
+                prior_facts = existing.get(field) if isinstance(existing.get(field), dict) else {}
+                combined[field] = {**prior_facts, **value}
+                continue
+            if field == "is_lifted":
+                combined[field] = bool(existing.get(field) or value)
+                continue
+            if not _meaningful(value):
+                continue
+            prior = combined.get(field)
+            if prefer_incoming or not _meaningful(prior):
+                combined[field] = value
+            elif field == "title" and len(str(value).strip()) > len(str(prior).strip()):
+                combined[field] = value
+        return combined
+
+    def _put(item: dict[str, Any], *, prefer_incoming: bool = False) -> None:
         vin = str(item.get("vin", "")).strip().upper()
         key = vin if vin and vin != "UNKNOWN" else str(item.get("detail_url") or item.get("title") or "")
         key = key.strip().lower()
@@ -4448,12 +4536,18 @@ def _merge_inventory_sources(
             return
         if key not in merged_by_key:
             order.append(key)
-        merged_by_key[key] = item
+            merged_by_key[key] = dict(item)
+            return
+        merged_by_key[key] = _combine(
+            merged_by_key[key],
+            item,
+            prefer_incoming=prefer_incoming,
+        )
 
     for entry in base_items:
         _put(entry)
     for entry in manual_items:
-        _put(entry)
+        _put(entry, prefer_incoming=True)
 
     return [merged_by_key[key] for key in order]
 
@@ -6243,13 +6337,8 @@ def _ws_inventory_item_to_record(item: dict[str, Any], *, source_url: str) -> di
         or item.get("condition")
         or item.get("vehicleType")
     )
-    inventory_category = str(raw_inventory_category or "").strip()
-    if not inventory_category:
-        source_path = urlparse(source_url).path.lower()
-        if "/new-" in source_path or "/new/" in source_path or "new-inventory" in source_path:
-            inventory_category = "new"
-        elif "/used-" in source_path or "/used/" in source_path or "used-inventory" in source_path or "pre-owned" in source_path:
-            inventory_category = "used"
+    source_metadata = _inventory_source_metadata(source_url, detail_url)
+    inventory_category = str(raw_inventory_category or source_metadata["inventory_category"]).strip()
 
     engine_parts = [
         attrs.get("engineSize") or item.get("engineSize"),
@@ -6280,6 +6369,9 @@ def _ws_inventory_item_to_record(item: dict[str, Any], *, source_url: str) -> di
         "inventory_category": inventory_category,
         "stock_number": item.get("stockNumber"),
         "days_on_lot": item.get("daysOnLot") or attrs.get("daysOnLot"),
+        "is_lifted": bool(item.get("is_lifted") or source_metadata["is_lifted"]),
+        "source_collections": source_metadata["source_collections"],
+        "source_urls": source_metadata["source_urls"],
     }
     if carfax_url:
         record["carfax_url"] = carfax_url

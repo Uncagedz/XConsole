@@ -826,6 +826,86 @@ def test_normalize_inventory_records_handles_schema_product_offer_shape():
     assert items[0]["status_label"] == "In Stock"
 
 
+def test_default_inventory_sources_include_new_used_and_lifted(monkeypatch):
+    for name in (
+        "DEALERSHIP_INVENTORY_URLS",
+        "DEALERSHIP_INVENTORY_URL",
+        "DEALERSHIP_NEW_INVENTORY_URL",
+        "DEALERSHIP_LIFTED_TRUCKS_URL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(api, "_configured_dealership_source_urls", lambda: [])
+
+    assert api._default_inventory_source_urls() == [
+        api.DEFAULT_DEALERSHIP_INVENTORY_URL,
+        api.DEFAULT_DEALERSHIP_NEW_INVENTORY_URL,
+        api.DEFAULT_DEALERSHIP_LIFTED_TRUCKS_URL,
+    ]
+
+
+def test_lifted_source_is_tagged_without_losing_detail_url_condition():
+    items = api._normalize_inventory_records(
+        [
+            {
+                "vin": "1C6SRFFT0RN123456",
+                "title": "2024 Ram 1500 Big Horn Lifted",
+                "url": "/used/Ram/2024-Ram-1500.htm",
+            }
+        ],
+        source_url=api.DEFAULT_DEALERSHIP_LIFTED_TRUCKS_URL,
+    )
+
+    assert items[0]["inventory_category"] == "used"
+    assert items[0]["is_lifted"] is True
+    assert items[0]["source_collections"] == ["lifted-trucks"]
+    assert items[0]["source_urls"] == [api.DEFAULT_DEALERSHIP_LIFTED_TRUCKS_URL]
+
+
+def test_merge_inventory_sources_preserves_rich_fields_and_manual_overrides():
+    vin = "1C6SRFFT0RN123456"
+    merged = api._merge_inventory_sources(
+        [
+            {
+                "vin": vin,
+                "title": "2024 Ram 1500",
+                "price": 55995,
+                "photos": ["https://images.example/one.jpg"],
+                "source_urls": [api.DEFAULT_DEALERSHIP_INVENTORY_URL],
+                "source_collections": [],
+                "inventory_category": "used",
+            },
+            {
+                "vin": vin,
+                "title": "2024 Ram 1500 Big Horn Lifted",
+                "price": None,
+                "photos": [
+                    "https://images.example/one.jpg",
+                    "https://images.example/two.jpg",
+                ],
+                "source_urls": [api.DEFAULT_DEALERSHIP_LIFTED_TRUCKS_URL],
+                "source_collections": ["lifted-trucks"],
+                "is_lifted": True,
+            },
+        ],
+        [{"vin": vin, "price": 54995, "photos": []}],
+    )
+
+    assert len(merged) == 1
+    assert merged[0]["title"] == "2024 Ram 1500 Big Horn Lifted"
+    assert merged[0]["price"] == 54995
+    assert merged[0]["photos"] == [
+        "https://images.example/one.jpg",
+        "https://images.example/two.jpg",
+    ]
+    assert merged[0]["inventory_category"] == "used"
+    assert merged[0]["is_lifted"] is True
+    assert merged[0]["source_collections"] == ["lifted-trucks"]
+    assert merged[0]["source_urls"] == [
+        api.DEFAULT_DEALERSHIP_INVENTORY_URL,
+        api.DEFAULT_DEALERSHIP_LIFTED_TRUCKS_URL,
+    ]
+
+
 def test_select_vehicle_photo_urls_default_skip_thumbnail_indexes():
     vehicle = {
         "photos": [

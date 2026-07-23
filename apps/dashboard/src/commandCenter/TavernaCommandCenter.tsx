@@ -118,6 +118,7 @@ type Dealership = {
   preowned_url?: string | null;
   used_url?: string | null;
   new_url?: string | null;
+  lifted_url?: string | null;
   active?: boolean;
 };
 
@@ -848,7 +849,7 @@ export function TavernaCommandCenter() {
   const [priceFilterDirty, setPriceFilterDirty] = useState(false);
   const [dealershipUrl, setDealershipUrl] = useState('');
   const [dealerships, setDealerships] = useState<Dealership[]>([]);
-  const [dealerForm, setDealerForm] = useState({ name: '', preowned_url: '', used_url: '', new_url: '' });
+  const [dealerForm, setDealerForm] = useState({ name: '', preowned_url: '', used_url: '', new_url: '', lifted_url: '' });
   const [dealerBusy, setDealerBusy] = useState(false);
   const [commandBar, setCommandBar] = useState('');
   const [mode, setMode] = useState<'vehicle' | 'pipeline'>('vehicle');
@@ -1492,13 +1493,14 @@ export function TavernaCommandCenter() {
           preowned_url: dealerForm.preowned_url.trim() || null,
           used_url: dealerForm.used_url.trim() || null,
           new_url: dealerForm.new_url.trim() || null,
+          lifted_url: dealerForm.lifted_url.trim() || null,
           active: true,
         }),
       });
       setDealerships(Array.isArray(payload.items) ? payload.items : []);
       const urls = Array.isArray(payload.active_source_urls) ? payload.active_source_urls.join(', ') : '';
       if (urls) setDealershipUrl(urls);
-      setDealerForm({ name: '', preowned_url: '', used_url: '', new_url: '' });
+      setDealerForm({ name: '', preowned_url: '', used_url: '', new_url: '', lifted_url: '' });
       setStatusText(`${payload.dealership?.name || 'Dealership'} saved. Syncing all active inventory sources...`);
       await syncInventory(urls);
     } catch (error: unknown) {
@@ -3747,7 +3749,7 @@ export function TavernaCommandCenter() {
             <div className="tv2-card-head">
               <div>
                 <h3>Dealership Sources</h3>
-                <p>Add the store once; Xconsole will sync new, used, and pre-owned inventory from the saved links.</p>
+                <p>Add the store once; Xconsole will sync new, used, pre-owned, and lifted-truck inventory from the saved links.</p>
               </div>
               <span className={`tv2-badge${canManageDealerships ? ' ok' : ' warn'}`}>{canManageDealerships ? 'Editable' : 'View Only'}</span>
             </div>
@@ -3756,6 +3758,7 @@ export function TavernaCommandCenter() {
               <input value={dealerForm.preowned_url} onChange={(event) => setDealerForm((prev) => ({ ...prev, preowned_url: event.target.value }))} placeholder="Pre-owned inventory URL" disabled={!canManageDealerships} />
               <input value={dealerForm.used_url} onChange={(event) => setDealerForm((prev) => ({ ...prev, used_url: event.target.value }))} placeholder="Used inventory URL" disabled={!canManageDealerships} />
               <input value={dealerForm.new_url} onChange={(event) => setDealerForm((prev) => ({ ...prev, new_url: event.target.value }))} placeholder="New inventory URL" disabled={!canManageDealerships} />
+              <input value={dealerForm.lifted_url} onChange={(event) => setDealerForm((prev) => ({ ...prev, lifted_url: event.target.value }))} placeholder="Lifted trucks URL" disabled={!canManageDealerships} />
             </div>
             <button className="tv2-btn tv2-btn-primary" type="button" onClick={() => void saveDealership()} disabled={dealerBusy || syncBusy || !canManageDealerships}>
               {dealerBusy || syncBusy ? 'Saving...' : 'Save Dealer + Sync'}
@@ -3768,7 +3771,7 @@ export function TavernaCommandCenter() {
               {dealerships.map((dealer) => (
                 <div className="tv2-dealer-row" key={dealer.id || dealer.name}>
                   <strong>{dealer.name}</strong>
-                  <span>{[dealer.preowned_url ? 'pre-owned' : null, dealer.used_url ? 'used' : null, dealer.new_url ? 'new' : null].filter(Boolean).join(' | ') || 'no links'}</span>
+                  <span>{[dealer.preowned_url ? 'pre-owned' : null, dealer.used_url ? 'used' : null, dealer.new_url ? 'new' : null, dealer.lifted_url ? 'lifted' : null].filter(Boolean).join(' | ') || 'no links'}</span>
                 </div>
               ))}
               {!dealerships.length ? <p className="tv2-empty">No saved dealerships yet.</p> : null}

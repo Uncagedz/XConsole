@@ -88,12 +88,15 @@ The launcher also prints a LAN IP URL so you can open the UI from another machin
 
 ## Live Dealership Inventory
 
-The preserved FastAPI service defaults to the configured Taverna used and new
-inventory pages. Override either source without changing code:
+The preserved FastAPI service defaults to the configured Taverna used, new,
+and lifted-trucks inventory pages. Records are unified by VIN without dropping
+richer photos, prices, condition data, or source tags. Override any source
+without changing code:
 
 ```powershell
 $env:DEALERSHIP_INVENTORY_URL = "https://your-dealership.com/used-vehicles/"
 $env:DEALERSHIP_NEW_INVENTORY_URL = "https://your-dealership.com/new-vehicles/"
+$env:DEALERSHIP_LIFTED_TRUCKS_URL = "https://your-dealership.com/lifted-trucks/"
 ```
 
 - The unified `/inventory` page shows the same live records, photos, prices,
