@@ -7,7 +7,7 @@ Status date: 2026-07-23
 - `Uncagedz/Xconsole-Dealership-Tool` at `3c1cb06`
 - `Uncagedz/AI-sales-Extension` at `c8bd1e1`
 - Integration branch: `feature/xconsole-unification`
-- Target repository requested for later mirroring: `Uncagedz/XConsole`
+- Canonical deployment repository: `Uncagedz/XConsole`, branch `main`
 
 ## Implemented
 
@@ -78,9 +78,6 @@ run during this phase.
   sanitized recordings for each skeleton listed in `MIGRATION-PLAN.md`.
 - Railway services, Redis, n8n credentials, and production origins/tokens must
   be provisioned in the user's accounts.
-- The requested new `Uncagedz/XConsole` repository could not be created through
-  the connected GitHub capability. This branch is therefore prepared in
-  `Uncagedz/Xconsole-Dealership-Tool` and can be mirrored later.
 
 ## Security actions
 

@@ -2,8 +2,9 @@
 
 XConsole is a personal dealership sales operating system that unifies the
 existing dealership automation dashboard, DriveCentric AI extension, connector
-jobs, and a Windows Local Agent. The Phase 1 monorepo lives on
-`feature/xconsole-unification`.
+jobs, and a Windows Local Agent. The canonical monorepo lives in
+`Uncagedz/XConsole` on `main`; the integration history remains available in
+`Uncagedz/Xconsole-Dealership-Tool` on `feature/xconsole-unification`.
 
 Start with:
 

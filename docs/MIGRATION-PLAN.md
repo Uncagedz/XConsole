@@ -2,14 +2,23 @@
 
 ## Delivery target
 
-The connected GitHub tooling does not provide repository creation, so Phase 1 is built on:
+Phase 1 was built and reviewed on the fallback integration branch:
 
 ```text
 Uncagedz/Xconsole-Dealership-Tool
 branch: feature/xconsole-unification
 ```
 
-Later, mirror the branch history into `Uncagedz/XConsole` and make that repository the deployment source.
+After validation, the preserved history was mirrored into the canonical
+deployment repository:
+
+```text
+Uncagedz/XConsole
+branch: main
+```
+
+Continue review in the original draft PR until it is closed, but use
+`Uncagedz/XConsole` as the deployment source.
 
 ## Migration principles
 
