@@ -130,7 +130,6 @@ async function submitReviewedLogin(
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByRole('textbox', { name: 'Password' }).fill(credentials.password);
     await page.getByRole('button', { name: 'Sign In' }).click();
-    await page.locator('#search_target').first().waitFor({ state: 'visible', timeout: timeoutMs });
     return;
   }
 
@@ -139,7 +138,6 @@ async function submitReviewedLogin(
     await page.getByRole('button', { name: 'Continue' }).click();
     await page.getByRole('textbox', { name: 'Password' }).fill(credentials.password);
     await page.getByRole('button', { name: 'Continue' }).click();
-    await page.waitForURL(/https:\/\/www\.carfaxonline\.com\//i, { timeout: timeoutMs });
     return;
   }
 
@@ -169,6 +167,26 @@ async function navigateToPortalLookup(
   await search.waitFor({ state: 'visible', timeout: portal.timeoutMs });
   await search.click();
   await page.waitForURL(new URL(portal.lookupUrl).toString(), { timeout: portal.timeoutMs });
+}
+
+async function waitForInteractiveAuthentication(
+  page: Page,
+  connectorId: PortalConnectorId,
+  timeoutMs: number,
+) {
+  const deadline = Date.now() + Math.max(timeoutMs, 10 * 60_000);
+  while (await hasAuthenticationChallenge(page)) {
+    if (Date.now() >= deadline) {
+      const artifacts = await saveFailureArtifacts(page, connectorId);
+      throw new PortalLookupError(
+        'reauthentication_required',
+        `${connectorId} login did not complete within the interactive sign-in window.`,
+        true,
+        artifacts,
+      );
+    }
+    await page.waitForTimeout(1_000);
+  }
 }
 
 export async function loginToPortal(
@@ -207,15 +225,11 @@ export async function loginToPortal(
       );
       prompt.close();
     }
+    await waitForInteractiveAuthentication(page, connectorId, portal.timeoutMs);
     await navigateToPortalLookup(page, connectorId, portal);
     if (await hasAuthenticationChallenge(page)) {
-      const artifacts = await saveFailureArtifacts(page, connectorId);
-      throw new PortalLookupError(
-        'reauthentication_required',
-        `${connectorId} still appears to be on an authentication page.`,
-        true,
-        artifacts,
-      );
+      await waitForInteractiveAuthentication(page, connectorId, portal.timeoutMs);
+      await navigateToPortalLookup(page, connectorId, portal);
     }
     return { connectorId, authenticated: true, currentUrl: page.url() };
   } finally {
@@ -356,7 +370,7 @@ async function collectPortalMediaUrls(page: Page, selector = 'img, source, a[hre
   return page.locator(selector).evaluateAll((elements) => {
     const seen = new Set<string>();
     const urls: string[] = [];
-    const add = (raw: string | null | undefined) => {
+    const add = (raw: string | null | undefined, source = '') => {
       const value = String(raw ?? '').trim();
       if (!value || value.startsWith('javascript:')) return;
       let resolved = value;
@@ -366,6 +380,7 @@ async function collectPortalMediaUrls(page: Page, selector = 'img, source, a[hre
         return;
       }
       if (!/^https?:\/\//i.test(resolved) && !/^data:image\//i.test(resolved)) return;
+      if (source === 'href' && !/(?:\.(?:avif|gif|jpe?g|png|svg|webp)(?:$|[?#])|\b(?:avatar|image|images|media|photo|photos|attachment)s?\b)/i.test(resolved)) return;
       const key = resolved.toLowerCase();
       if (seen.has(key)) return;
       seen.add(key);
@@ -373,12 +388,12 @@ async function collectPortalMediaUrls(page: Page, selector = 'img, source, a[hre
     };
     for (const element of elements) {
       for (const name of ['src', 'currentSrc', 'href', 'data-src', 'data-original', 'data-image', 'data-url']) {
-        add(element.getAttribute(name));
+        add(element.getAttribute(name), name);
       }
       const style = element.getAttribute('style') ?? '';
-      for (const match of style.matchAll(/url\((?:["']?)([^)"']+)(?:["']?)\)/gi)) add(match[1]);
+      for (const match of style.matchAll(/url\((?:["']?)([^)"']+)(?:["']?)\)/gi)) add(match[1], 'style');
       if (element instanceof HTMLImageElement && element.naturalWidth > 0 && element.naturalHeight > 0) {
-        add(element.currentSrc || element.src);
+        add(element.currentSrc || element.src, 'img');
       }
     }
     return urls;
@@ -453,6 +468,8 @@ async function lookupOneMicro(page: Page, portal: PortalLookupConfig, vin: strin
       ...detailFields,
       ...historyFields,
       activity: historyFields.activity.length ? historyFields.activity : detailFields.activity,
+      lastCheckedOutBy: historyFields.lastCheckedOutBy ?? detailFields.lastCheckedOutBy,
+      lastCheckedOutAt: historyFields.lastCheckedOutAt ?? detailFields.lastCheckedOutAt,
       keyImageUrl: historyFields.keyImageUrl ?? detailFields.keyImageUrl,
       location: labeledValue(summary, 'Tag Location')
         ?? detailFields.location,
