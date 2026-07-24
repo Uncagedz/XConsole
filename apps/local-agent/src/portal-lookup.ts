@@ -352,6 +352,39 @@ async function lookupReconVision(page: Page, portal: PortalLookupConfig, vin: st
   };
 }
 
+async function collectPortalMediaUrls(page: Page, selector = 'img, source, a[href], [data-src], [data-original], [data-image]') {
+  return page.locator(selector).evaluateAll((elements) => {
+    const seen = new Set<string>();
+    const urls: string[] = [];
+    const add = (raw: string | null | undefined) => {
+      const value = String(raw ?? '').trim();
+      if (!value || value.startsWith('javascript:')) return;
+      let resolved = value;
+      try {
+        resolved = new URL(value, document.baseURI).toString();
+      } catch {
+        return;
+      }
+      if (!/^https?:\/\//i.test(resolved) && !/^data:image\//i.test(resolved)) return;
+      const key = resolved.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      urls.push(resolved);
+    };
+    for (const element of elements) {
+      for (const name of ['src', 'currentSrc', 'href', 'data-src', 'data-original', 'data-image', 'data-url']) {
+        add(element.getAttribute(name));
+      }
+      const style = element.getAttribute('style') ?? '';
+      for (const match of style.matchAll(/url\((?:["']?)([^)"']+)(?:["']?)\)/gi)) add(match[1]);
+      if (element instanceof HTMLImageElement && element.naturalWidth > 0 && element.naturalHeight > 0) {
+        add(element.currentSrc || element.src);
+      }
+    }
+    return urls;
+  });
+}
+
 async function lookupOneMicro(page: Page, portal: PortalLookupConfig, vin: string) {
   const vinInput = page.locator(portal.vinInputSelector).first();
   await vinInput.waitFor({ state: 'visible', timeout: portal.timeoutMs });
@@ -366,9 +399,8 @@ async function lookupOneMicro(page: Page, portal: PortalLookupConfig, vin: strin
     timeout: portal.timeoutMs,
   });
   const summary = (await page.locator('body').innerText()).trim().slice(0, 20_000);
-  const imageUrls = await page.locator('img').evaluateAll((images) => images
-    .map((image) => (image as HTMLImageElement).src)
-    .filter((url) => Boolean(url) && /(?:key|tag|checkout|history|event)/i.test(url)));
+  const imageUrls = (await collectPortalMediaUrls(page))
+    .filter((url) => !/(?:logo|icon|sprite|favicon)/i.test(url));
   let historyFields = parseOneMicroHistory([]);
   const historyLink = page.locator('a[href$="/tag-history"]').first();
   if (await historyLink.count()) {
@@ -406,9 +438,7 @@ async function lookupOneMicro(page: Page, portal: PortalLookupConfig, vin: strin
           await imageButton.click();
           const dialog = historyPage.locator('[role="dialog"]').first();
           await dialog.waitFor({ state: 'visible', timeout: Math.min(5_000, portal.timeoutMs) }).catch(() => undefined);
-          historyImageUrls.push(...await dialog.locator('img').evaluateAll((images) => images
-            .map((image) => (image as HTMLImageElement).src)
-            .filter(Boolean)));
+          historyImageUrls.push(...await collectPortalMediaUrls(historyPage, '[role="dialog"] img, [role="dialog"] source, [role="dialog"] a[href], [role="dialog"] [data-src], [role="dialog"] [data-original], [role="dialog"] [data-image]'));
         }
       }
       historyFields = parseOneMicroHistory(rows, historyImageUrls);

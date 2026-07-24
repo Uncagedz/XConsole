@@ -209,4 +209,22 @@ describe('portal VIN result normalization', () => {
       ],
     });
   });
+
+  it('keeps the checkout-person image even when the portal labels it as an avatar', () => {
+    expect(parseOneMicroHistory([
+      {
+        createdOn: '2026-07-22 15:01:36 EDT',
+        createdBy: 'ALFONSO REYES',
+        closedOn: null,
+        closedBy: null,
+        event: 'Remove',
+        kiosk: 'Taverna Collection Sales',
+        tagId: '1968',
+        reason: 'Demo',
+      },
+    ], ['https://www.1micro.net/assets/avatar-alfonso.jpg'])).toMatchObject({
+      lastCheckedOutBy: 'ALFONSO REYES',
+      keyImageUrl: 'https://www.1micro.net/assets/avatar-alfonso.jpg',
+    });
+  });
 });

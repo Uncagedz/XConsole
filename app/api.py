@@ -23,6 +23,10 @@ try:
     from bs4 import BeautifulSoup
 except Exception:  # pragma: no cover - optional parser fallback
     BeautifulSoup = None  # type: ignore[assignment]
+try:
+    from pypdf import PdfReader
+except Exception:  # pragma: no cover - optional sticker PDF parser
+    PdfReader = None  # type: ignore[assignment,misc]
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
@@ -4482,6 +4486,11 @@ def _prefetch_inventory_detail_metadata(items: list[dict[str, Any]]) -> dict[str
             specs = dict(existing.get("quick_specs") if isinstance(existing.get("quick_specs"), dict) else {})
             specs.update(fetched.get("quick_specs") or {})
             specs = _derive_powertrain_specs(specs)
+            sticker_url = fetched.get("sticker_url") or existing.get("sticker_url")
+            if sticker_url and not specs.get("sticker_features"):
+                sticker_features = _extract_sticker_features_from_url(str(sticker_url))
+                if sticker_features:
+                    specs["sticker_features"] = sticker_features
             photos = _dedupe_urls([
                 *list(fetched.get("photos") or []),
                 *list(existing.get("photos") if isinstance(existing.get("photos"), list) else []),
@@ -4497,7 +4506,7 @@ def _prefetch_inventory_detail_metadata(items: list[dict[str, Any]]) -> dict[str
                 "photos": photos,
                 "photos_count": len(photos),
                 "main_photo": photos[0] if photos else existing.get("main_photo"),
-                "sticker_url": fetched.get("sticker_url") or existing.get("sticker_url"),
+                "sticker_url": sticker_url,
                 "carfax_url": fetched.get("carfax_url") or existing.get("carfax_url"),
                 "carfax_facts": carfax_facts,
                 "loaded_at": now,
@@ -5283,6 +5292,7 @@ def _extract_standard_specs_from_html(html_text: str) -> dict[str, Any]:
         return {}
 
     rows: list[tuple[str, str]] = []
+    feature_texts: list[str] = []
     if BeautifulSoup is not None:
         try:
             soup = BeautifulSoup(html_text, "html.parser")
@@ -5295,6 +5305,12 @@ def _extract_standard_specs_from_html(html_text: str) -> dict[str, Any]:
                 value = re.sub(r"\s+", " ", detail_node.get_text(" ", strip=True)).strip()
                 if label and value:
                     rows.append((label, value))
+            for item in soup.select(
+                "[data-feature], [data-option], .features li, .feature-list li, .equipment-list li, .options li"
+            ):
+                value = re.sub(r"\s+", " ", item.get_text(" ", strip=True)).strip(" ·•-")
+                if 4 <= len(value) <= 180:
+                    feature_texts.append(value)
         except Exception:
             rows = []
 
@@ -5352,6 +5368,17 @@ def _extract_standard_specs_from_html(html_text: str) -> dict[str, Any]:
             continue
         if key not in facts or label.startswith("engine "):
             facts[key] = value
+    feature_labels = re.compile(
+        r"(?:feature|equipment|option|package|edition|roof|audio|seat|wheel|assist|camera|navigation|safety|appearance)",
+        flags=re.IGNORECASE,
+    )
+    feature_texts.extend(
+        f"{raw_label}: {value}"
+        for raw_label, value in rows
+        if feature_labels.search(raw_label) or feature_labels.search(value)
+    )
+    if feature_texts:
+        facts["sticker_features"] = _dedupe_strings(feature_texts)
     return facts
 
 
@@ -5448,7 +5475,46 @@ def _quick_spec_highlights(quick_specs: dict[str, Any]) -> list[str]:
         value = quick_specs.get(key)
         if value not in (None, ""):
             highlights.append(f"{label}: {value}")
+    sticker_features = quick_specs.get("sticker_features")
+    if isinstance(sticker_features, list):
+        highlights.extend(str(value).strip() for value in sticker_features if str(value).strip())
     return _dedupe_strings(highlights)
+
+
+def _extract_sticker_features_from_url(sticker_url: str, *, timeout_seconds: float = 8.0) -> list[str]:
+    """Read option/equipment lines from a linked Monroney/window-sticker file."""
+    source_url = str(sticker_url or '').strip()
+    if not source_url:
+        return []
+    try:
+        with httpx.Client(timeout=timeout_seconds, follow_redirects=True) as client:
+            response = client.get(source_url, headers={
+                'User-Agent': 'Mozilla/5.0 XConsoleStickerParser/1.0',
+                'Accept': 'application/pdf,text/html,*/*;q=0.8',
+            })
+        if response.status_code >= 400:
+            return []
+        content_type = response.headers.get('content-type', '').lower()
+        text = ''
+        if ('pdf' in content_type or source_url.lower().split('?', 1)[0].endswith('.pdf')) and PdfReader is not None:
+            reader = PdfReader(BytesIO(response.content))
+            text = '\n'.join(page.extract_text() or '' for page in reader.pages)
+        else:
+            text = _html_to_visible_text(response.text)
+        lines = [re.sub(r'\s+', ' ', line).strip(' ·•-') for line in text.splitlines()]
+        feature_pattern = re.compile(
+            r'(?:optional equipment|standard equipment|equipment|package|option|edition|panoramic|sunroof|moonroof|leather|heated|ventilated|navigation|camera|assist|audio|wheel|towing|third row|cargo|appearance)',
+            flags=re.IGNORECASE,
+        )
+        features = [
+            line for line in lines
+            if 4 <= len(line) <= 180
+            and feature_pattern.search(line)
+            and not re.match(r'^(?:window sticker|monroney|msrp|total|destination|disclaimer|warranty)\b', line, flags=re.IGNORECASE)
+        ]
+        return _dedupe_strings(features)[:40]
+    except Exception:
+        return []
 
 
 def _extract_carfax_facts_from_html(html_text: str) -> dict[str, Any]:
@@ -7481,6 +7547,13 @@ def _load_vehicle_assets(vin: str, *, refresh: bool = False) -> dict[str, Any]:
             if not payload.get("detail_fetch_error"):
                 payload["detail_fetch_error"] = str(exc)
 
+    sticker_url = str(payload.get("sticker_url") or "").strip()
+    current_specs = payload.get("quick_specs") if isinstance(payload.get("quick_specs"), dict) else {}
+    if sticker_url and not current_specs.get("sticker_features"):
+        sticker_features = _extract_sticker_features_from_url(sticker_url)
+        if sticker_features:
+            payload["quick_specs"] = {**current_specs, "sticker_features": sticker_features}
+
     if payload.get("carfax_url") and _env_flag("CARFAX_INLINE_REPORT_FETCH", False):
         should_refresh_carfax_report = True
         existing_report = existing.get("carfax_report") if isinstance(existing.get("carfax_report"), dict) else payload.get("carfax_report")
@@ -7956,7 +8029,7 @@ def _vehicle_asset_summary_payload(*, vehicle: dict[str, Any], assets: dict[str,
         *(f"CARFAX: {line}" for line in carfax_lines[:3]),
     ]
     return {
-        "sticker_highlights": sticker_highlights[:8],
+        "sticker_highlights": sticker_highlights[:24],
         "carfax_summary": carfax_summary,
         "buyer_profile": buyer_profile,
         "marketing_summary": [line for line in marketing_summary if line],

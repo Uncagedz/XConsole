@@ -193,7 +193,10 @@ export function parseOneMicroKey(summary: string, imageUrls: string[] = []) {
     .map((line) => line.replace(/\s+/g, ' ').trim())
     .filter((line) => /\b(?:checked?\s*(?:in|out)|borrowed|returned|removed|key\s+(?:taken|returned))\b/i.test(line))
     .slice(0, 12);
-  const usefulImage = imageUrls.find((url) => !/(?:logo|icon|avatar|sprite|favicon)/i.test(url)) ?? null;
+  // History dialogs often use an employee/avatar image for the person who took
+  // the key. Keep that image; the detail page parser still filters generic UI
+  // chrome before this result is merged.
+  const usefulImage = imageUrls.find((url) => !/(?:logo|icon|sprite|favicon)/i.test(url)) ?? null;
   return {
     location: labeled(summary, ['Tag Location', 'Key Location']) ?? labeled(summary, ['Lot Location']),
     lotLocation: labeled(summary, ['Lot Location']),
@@ -228,7 +231,7 @@ export function parseOneMicroHistory(rows: OneMicroHistoryRow[], imageUrls: stri
     reason: clean(row.reason),
   }));
   const checkout = normalized.find((row) => /\b(?:remove|checkout|assign)\b/i.test(row.event ?? ''));
-  const usefulImage = imageUrls.find((url) => !/(?:logo|icon|avatar|sprite|favicon)/i.test(url)) ?? null;
+  const usefulImage = imageUrls.find((url) => !/(?:logo|icon|sprite|favicon)/i.test(url)) ?? null;
   return {
     history: normalized.slice(0, 50),
     activity: normalized.slice(0, 12).map((row) => (

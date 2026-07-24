@@ -9,6 +9,10 @@ export interface InventoryFilters {
   condition: InventoryCondition;
   photos: InventoryPhotoFilter;
   sort: InventorySort;
+  minPrice?: number | null;
+  maxPrice?: number | null;
+  minMileage?: number | null;
+  maxMileage?: number | null;
 }
 
 export type InventorySearchInsight = {
@@ -193,6 +197,10 @@ export function filterAndSortInventory(items: Vehicle[], filters: InventoryFilte
       if (filters.condition !== 'all' && condition(vehicle) !== filters.condition) return false;
       if (filters.photos === 'with-photos' && vehicle.photos.length === 0) return false;
       if (filters.photos === 'needs-photos' && vehicle.photos.length > 0) return false;
+      if (filters.minPrice != null && (vehicle.retailPrice == null || vehicle.retailPrice < filters.minPrice)) return false;
+      if (filters.maxPrice != null && (vehicle.retailPrice == null || vehicle.retailPrice > filters.maxPrice)) return false;
+      if (filters.minMileage != null && (vehicle.mileage == null || vehicle.mileage < filters.minMileage)) return false;
+      if (filters.maxMileage != null && (vehicle.mileage == null || vehicle.mileage > filters.maxMileage)) return false;
       if (!query) return true;
       return matchesNaturalSearch(vehicle, criteria);
     })
