@@ -1,13 +1,19 @@
 import type { AutomationJob } from '@drivecentric-ai/shared';
-import type { AgentConfig } from './config.js';
+import { portalConnectorIdSchema, type AgentConfig } from './config.js';
 import { completeJob, leaseJob, sendHeartbeat } from './api.js';
 import { logger } from './logger.js';
+import { lookupPortalVin, PortalLookupError } from './portal-lookup.js';
 
 const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-async function executeJob(job: AutomationJob) {
+export async function executeJob(config: AgentConfig, job: AutomationJob) {
   if (job.approvalStatus === 'required') {
     throw new Error('Gateway leased an unapproved high-risk job');
+  }
+  const portalConnector = portalConnectorIdSchema.safeParse(job.connectorId);
+  if (portalConnector.success && job.operation === 'lookup-vin') {
+    const vin = typeof job.payload.vin === 'string' ? job.payload.vin : '';
+    return lookupPortalVin(config, portalConnector.data, vin);
   }
   return {
     ok: true,
@@ -40,10 +46,22 @@ export async function runAgent(config: AgentConfig, signal: AbortSignal) {
       if (job) {
         activeJobId = job.id;
         try {
-          const result = await executeJob(job);
+          const result = await executeJob(config, job);
           await completeJob(config, job.id, result, true);
         } catch (error) {
-          await completeJob(config, job.id, { error: error instanceof Error ? error.message : 'Unknown job failure' }, false);
+          await completeJob(
+            config,
+            job.id,
+            error instanceof PortalLookupError
+              ? {
+                  errorType: error.errorType,
+                  message: error.message,
+                  reauthenticationRequired: error.reauthenticationRequired,
+                  ...error.artifacts,
+                }
+              : { errorType: 'internal', message: error instanceof Error ? error.message : 'Unknown job failure' },
+            false,
+          );
         } finally {
           activeJobId = undefined;
         }

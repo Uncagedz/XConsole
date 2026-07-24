@@ -1,7 +1,12 @@
 import {
+  automationJobSchema,
+  automationJobStatusSchema,
+  agentHeartbeatSchema,
   connectorSummarySchema,
   inventoryResponseSchema,
   vehicleSchema,
+  type AutomationJob,
+  type AutomationJobStatus,
   type ConnectorSummary,
   type InventoryResponse,
   type Vehicle,
@@ -18,6 +23,12 @@ const valuationStatusSchema = z.object({
   diagnostics: z.record(z.unknown()).optional(),
 });
 export type ValuationStatus = z.infer<typeof valuationStatusSchema>;
+const deviceSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  lastHeartbeat: agentHeartbeatSchema.optional(),
+});
+export type DeviceSummary = z.infer<typeof deviceSummarySchema>;
 
 export class GatewayError extends Error {
   constructor(
@@ -111,5 +122,30 @@ export const gateway = {
   },
   async vehicle(vin: string): Promise<Vehicle> {
     return (await request<{ vehicle: Vehicle }>(`/api/vehicles/${encodeURIComponent(vin)}`, z.object({ vehicle: vehicleSchema }))).vehicle;
+  },
+  async lookupVehicleSources(
+    vin: string,
+    connectorIds: Array<'reconvision' | 'onemicro'>,
+  ): Promise<AutomationJob[]> {
+    return (await request<{ jobs: AutomationJob[] }>(
+      `/api/vehicles/${encodeURIComponent(vin)}/source-lookups`,
+      z.object({ jobs: z.array(automationJobSchema) }),
+      {
+        method: 'POST',
+        body: JSON.stringify({ connectorIds }),
+      },
+    )).jobs;
+  },
+  async automationJob(jobId: string): Promise<AutomationJobStatus> {
+    return (await request<{ job: AutomationJobStatus }>(
+      `/api/automation/jobs/${encodeURIComponent(jobId)}`,
+      z.object({ job: automationJobStatusSchema }),
+    )).job;
+  },
+  async devices(): Promise<DeviceSummary[]> {
+    return (await request<{ items: DeviceSummary[] }>(
+      '/api/devices',
+      z.object({ items: z.array(deviceSummarySchema) }),
+    )).items;
   },
 };

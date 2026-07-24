@@ -3,6 +3,7 @@ import {
   AutomationJobStatus,
   ConnectorAuthenticationStatus,
   ConnectorExecutionLocation,
+  ConnectorRunStatus,
   Prisma,
   PrismaClient,
   type AutomationJob as PrismaAutomationJob,
@@ -11,10 +12,12 @@ import {
 import type {
   AgentHeartbeat,
   AutomationJob,
+  AutomationJobStatus as AutomationJobStatusContract,
   ConnectorSummary,
   LeadContextIngest,
   Vehicle,
 } from '@drivecentric-ai/shared';
+import { connectorSeeds } from './seed-data.js';
 import { hashToken, type GatewayStoreContract } from './store.js';
 
 const liveConnectors = new Set([
@@ -23,6 +26,7 @@ const liveConnectors = new Set([
   'drivecentric',
   'routeone-bank-brain',
 ]);
+const recordingConnectors = new Set(['reconvision', 'onemicro']);
 
 const executionLocation = {
   [ConnectorExecutionLocation.RAILWAY]: 'railway',
@@ -44,7 +48,11 @@ function connectorSummary(connector: PrismaConnector): ConnectorSummary {
     description: `${connector.displayName} XConsole connector`,
     capabilities: connector.capabilities as ConnectorSummary['capabilities'],
     executionLocation: executionLocation[connector.executionLocation],
-    mode: liveConnectors.has(connector.id) ? 'live' : 'skeleton',
+    mode: liveConnectors.has(connector.id)
+      ? 'live'
+      : recordingConnectors.has(connector.id)
+        ? 'recording'
+        : 'skeleton',
     approvalRequiredForWrites: true,
     enabled: connector.enabled,
     authenticationStatus: authenticationStatus[connector.authenticationStatus],
@@ -112,8 +120,62 @@ function automationJob(job: PrismaAutomationJob): AutomationJob {
   };
 }
 
+const automationJobStatus = {
+  [AutomationJobStatus.PENDING]: 'pending',
+  [AutomationJobStatus.APPROVAL_REQUIRED]: 'approval-required',
+  [AutomationJobStatus.APPROVED]: 'approved',
+  [AutomationJobStatus.LEASED]: 'leased',
+  [AutomationJobStatus.RUNNING]: 'running',
+  [AutomationJobStatus.SUCCEEDED]: 'succeeded',
+  [AutomationJobStatus.FAILED]: 'failed',
+  [AutomationJobStatus.CANCELLED]: 'cancelled',
+} as const;
+const connectorLocation = {
+  railway: ConnectorExecutionLocation.RAILWAY,
+  'local-agent': ConnectorExecutionLocation.LOCAL_AGENT,
+  extension: ConnectorExecutionLocation.EXTENSION,
+} as const;
+
+function automationJobDetails(job: PrismaAutomationJob): AutomationJobStatusContract {
+  return {
+    id: job.id,
+    connectorId: job.connectorId,
+    operation: job.operation,
+    status: automationJobStatus[job.status],
+    payload: jsonRecord(job.payload),
+    result: job.result === null ? null : jsonRecord(job.result),
+    error: job.error === null ? null : jsonRecord(job.error),
+    attemptCount: job.attemptCount,
+    maxAttempts: job.maxAttempts,
+    createdAt: job.createdAt.toISOString(),
+    startedAt: job.startedAt?.toISOString() ?? null,
+    finishedAt: job.finishedAt?.toISOString() ?? null,
+  };
+}
+
 export class PrismaGatewayStore implements GatewayStoreContract {
   constructor(private readonly prisma = new PrismaClient()) {}
+
+  async initialize() {
+    await Promise.all(connectorSeeds.map((connector) => this.prisma.connector.upsert({
+      where: { id: connector.id },
+      create: {
+        id: connector.id,
+        displayName: connector.displayName,
+        enabled: connector.enabled,
+        executionLocation: connectorLocation[connector.executionLocation],
+        authenticationStatus: connector.enabled
+          ? ConnectorAuthenticationStatus.AUTHENTICATED
+          : ConnectorAuthenticationStatus.NOT_CONFIGURED,
+        capabilities: connector.capabilities,
+      },
+      update: {
+        displayName: connector.displayName,
+        executionLocation: connectorLocation[connector.executionLocation],
+        capabilities: connector.capabilities,
+      },
+    })));
+  }
 
   async listConnectors() {
     return (await this.prisma.connector.findMany({ orderBy: { displayName: 'asc' } })).map(connectorSummary);
@@ -138,7 +200,11 @@ export class PrismaGatewayStore implements GatewayStoreContract {
   async listVehicles(): Promise<Vehicle[]> {
     const [vehicles, connectors] = await Promise.all([
       this.prisma.vehicle.findMany({
-        include: { inventoryStatuses: true },
+        include: {
+          inventoryStatuses: true,
+          reconRecords: { orderBy: { observedAt: 'desc' }, take: 1 },
+          keyRecords: { orderBy: { observedAt: 'desc' }, take: 1 },
+        },
         orderBy: [{ lastSeenAt: 'desc' }, { vin: 'asc' }],
       }),
       this.prisma.connector.findMany({ select: { id: true, displayName: true, currentError: true } }),
@@ -147,6 +213,8 @@ export class PrismaGatewayStore implements GatewayStoreContract {
     return vehicles.map((vehicle) => {
       const websiteStatus = vehicle.inventoryStatuses.find((status) => status.connectorId === 'dealership-website');
       const details = jsonRecord(websiteStatus?.details ?? {});
+      const recon = vehicle.reconRecords[0];
+      const key = vehicle.keyRecords[0];
       return {
         id: vehicle.id,
         vin: vehicle.vin,
@@ -162,6 +230,11 @@ export class PrismaGatewayStore implements GatewayStoreContract {
         retailPrice: vehicle.retailPrice ? Number(vehicle.retailPrice) : null,
         msrp: nullableNumber(details.msrp),
         cost: vehicle.cost ? Number(vehicle.cost) : null,
+        reconStage: recon?.stage ?? null,
+        reconOpenWork: recon ? jsonStringArray(recon.openWork) : [],
+        frontlineReady: recon?.completedAt ? true : null,
+        keyLocation: key?.location ?? null,
+        keyHolder: key?.holder ?? null,
         daysInStock: vehicle.daysInStock,
         websiteUrl: vehicle.websiteUrl,
         photos: jsonStringArray(vehicle.photos),
@@ -170,15 +243,43 @@ export class PrismaGatewayStore implements GatewayStoreContract {
         drivetrain: nullableString(details.drivetrain),
         engine: nullableString(details.engine),
         transmission: nullableString(details.transmission),
-        sourceStatuses: vehicle.inventoryStatuses.map((status) => ({
-          connectorId: status.connectorId,
-          displayName: connectorMap.get(status.connectorId)?.displayName ?? status.connectorId,
-          status: status.status,
-          synchronizedAt: status.synchronizedAt.toISOString(),
-          error: connectorMap.get(status.connectorId)?.currentError ?? null,
-          reauthenticationRequired: false,
-          details: jsonRecord(status.details),
-        })),
+        sourceStatuses: [
+          ...vehicle.inventoryStatuses.map((status) => ({
+            connectorId: status.connectorId,
+            displayName: connectorMap.get(status.connectorId)?.displayName ?? status.connectorId,
+            status: status.status,
+            synchronizedAt: status.synchronizedAt.toISOString(),
+            error: connectorMap.get(status.connectorId)?.currentError ?? null,
+            reauthenticationRequired: false,
+            details: jsonRecord(status.details),
+          })),
+          ...(recon && !vehicle.inventoryStatuses.some((status) => status.connectorId === 'reconvision')
+            ? [{
+                connectorId: 'reconvision',
+                displayName: connectorMap.get('reconvision')?.displayName ?? 'ReconVision',
+                status: recon.stage ?? 'synchronized',
+                synchronizedAt: recon.observedAt.toISOString(),
+                error: connectorMap.get('reconvision')?.currentError ?? null,
+                reauthenticationRequired: false,
+                details: {
+                  stage: recon.stage,
+                  openWork: jsonStringArray(recon.openWork),
+                  frontlineReady: Boolean(recon.completedAt),
+                },
+              }]
+            : []),
+          ...(key && !vehicle.inventoryStatuses.some((status) => status.connectorId === 'onemicro')
+            ? [{
+                connectorId: 'onemicro',
+                displayName: connectorMap.get('onemicro')?.displayName ?? '1Micro',
+                status: key.location ? 'located' : 'synchronized',
+                synchronizedAt: key.observedAt.toISOString(),
+                error: connectorMap.get('onemicro')?.currentError ?? null,
+                reauthenticationRequired: false,
+                details: { location: key.location, holder: key.holder },
+              }]
+            : []),
+        ],
         salesTalkingPoints: jsonStringArray(vehicle.salesTalkingPoints),
         lastSynchronizedAt: vehicle.lastSeenAt.toISOString(),
       };
@@ -330,16 +431,27 @@ export class PrismaGatewayStore implements GatewayStoreContract {
     return result.count === 1;
   }
 
-  async createJob(connectorId: string, operation: string, approvalRequired: boolean) {
+  async createJob(
+    connectorId: string,
+    operation: string,
+    approvalRequired: boolean,
+    payload: Record<string, unknown> = {},
+  ) {
     const job = await this.prisma.automationJob.create({
       data: {
         connectorId,
         operation,
+        payload: payload as Prisma.InputJsonObject,
         idempotencyKey: randomUUID(),
         status: approvalRequired ? AutomationJobStatus.APPROVAL_REQUIRED : AutomationJobStatus.PENDING,
       },
     });
     return automationJob(job);
+  }
+
+  async getJob(jobId: string) {
+    const job = await this.prisma.automationJob.findUnique({ where: { id: jobId } });
+    return job ? automationJobDetails(job) : undefined;
   }
 
   async leaseJob() {
@@ -356,6 +468,7 @@ export class PrismaGatewayStore implements GatewayStoreContract {
       data: {
         status: AutomationJobStatus.LEASED,
         leasedUntil: new Date(Date.now() + 60_000),
+        startedAt: candidate.startedAt ?? new Date(),
         attemptCount: { increment: 1 },
       },
     });
@@ -363,16 +476,118 @@ export class PrismaGatewayStore implements GatewayStoreContract {
   }
 
   async completeJob(jobId: string, success: boolean, result: unknown) {
+    const job = await this.prisma.automationJob.findUnique({ where: { id: jobId } });
+    if (
+      !job
+      || (job.status !== AutomationJobStatus.LEASED && job.status !== AutomationJobStatus.RUNNING)
+    ) return false;
+    const finishedAt = new Date();
+    const resultRecord = typeof result === 'object' && result !== null && !Array.isArray(result)
+      ? result as Record<string, unknown>
+      : { value: result };
+    const resultJson = resultRecord as Prisma.InputJsonObject;
     const updated = await this.prisma.automationJob.updateMany({
       where: { id: jobId, status: { in: [AutomationJobStatus.LEASED, AutomationJobStatus.RUNNING] } },
       data: {
         status: success ? AutomationJobStatus.SUCCEEDED : AutomationJobStatus.FAILED,
-        finishedAt: new Date(),
-        result: success ? (result as Prisma.InputJsonValue) : Prisma.JsonNull,
-        error: success ? Prisma.JsonNull : (result as Prisma.InputJsonValue),
+        finishedAt,
+        result: success ? resultJson : Prisma.JsonNull,
+        error: success ? Prisma.JsonNull : resultJson,
       },
     });
-    return updated.count === 1;
+    if (updated.count !== 1) return false;
+
+    const durationMs = Math.max(0, finishedAt.getTime() - (job.startedAt ?? job.createdAt).getTime());
+    const errorMessage = typeof resultRecord.message === 'string'
+      ? resultRecord.message
+      : typeof resultRecord.error === 'string'
+        ? resultRecord.error
+        : success
+          ? null
+          : 'Local Agent job failed';
+    const reauthenticationRequired = resultRecord.reauthenticationRequired === true;
+    await Promise.all([
+      this.prisma.connector.update({
+        where: { id: job.connectorId },
+        data: success
+          ? {
+              authenticationStatus: ConnectorAuthenticationStatus.AUTHENTICATED,
+              lastAttemptedAt: finishedAt,
+              lastSuccessfulAt: finishedAt,
+              lastDurationMs: durationMs,
+              lastRecordsUpdated: 1,
+              currentError: null,
+              reauthenticationRequired: false,
+            }
+          : {
+              authenticationStatus: reauthenticationRequired
+                ? ConnectorAuthenticationStatus.REAUTHENTICATION_REQUIRED
+                : ConnectorAuthenticationStatus.ERROR,
+              lastAttemptedAt: finishedAt,
+              lastDurationMs: durationMs,
+              lastRecordsUpdated: 0,
+              currentError: errorMessage,
+              reauthenticationRequired,
+            },
+      }),
+      this.prisma.connectorRun.create({
+        data: {
+          connectorId: job.connectorId,
+          status: success ? ConnectorRunStatus.SUCCEEDED : ConnectorRunStatus.FAILED,
+          startedAt: job.startedAt ?? job.createdAt,
+          finishedAt,
+          durationMs,
+          recordsFound: success ? 1 : 0,
+          recordsUpdated: success ? 1 : 0,
+          errorType: success ? null : String(resultRecord.errorType ?? 'internal'),
+          errorMessage,
+          screenshotPath: typeof resultRecord.screenshotPath === 'string' ? resultRecord.screenshotPath : null,
+          htmlSnapshotPath: typeof resultRecord.htmlSnapshotPath === 'string' ? resultRecord.htmlSnapshotPath : null,
+          reauthenticationRequired,
+          retryCount: Math.max(0, job.attemptCount - 1),
+          lastSuccessfulSyncAt: success ? finishedAt : null,
+          metadata: { jobId: job.id, operation: job.operation },
+        },
+      }),
+    ]);
+
+    if (success && job.operation === 'lookup-vin') {
+      const payload = jsonRecord(job.payload);
+      const vin = typeof payload.vin === 'string' ? payload.vin : '';
+      const fields = typeof resultRecord.fields === 'object' && resultRecord.fields !== null && !Array.isArray(resultRecord.fields)
+        ? resultRecord.fields as Record<string, unknown>
+        : {};
+      const vehicle = vin ? await this.prisma.vehicle.findUnique({ where: { vin } }) : null;
+      if (vehicle && job.connectorId === 'reconvision') {
+        const openWork = Array.isArray(fields.openWork)
+          ? fields.openWork.filter((item): item is string => typeof item === 'string')
+          : typeof fields.openWork === 'string'
+            ? fields.openWork.split(/\r?\n|;/).map((item) => item.trim()).filter(Boolean)
+            : [];
+        await this.prisma.reconRecord.create({
+          data: {
+            vehicleId: vehicle.id,
+            connectorId: job.connectorId,
+            stage: typeof fields.stage === 'string' ? fields.stage : null,
+            openWork,
+            completedAt: fields.frontlineReady === true ? finishedAt : null,
+            observedAt: finishedAt,
+          },
+        });
+      }
+      if (vehicle && job.connectorId === 'onemicro') {
+        await this.prisma.keyRecord.create({
+          data: {
+            vehicleId: vehicle.id,
+            connectorId: job.connectorId,
+            location: typeof fields.location === 'string' ? fields.location : null,
+            holder: typeof fields.holder === 'string' ? fields.holder : null,
+            observedAt: finishedAt,
+          },
+        });
+      }
+    }
+    return true;
   }
 
   async ingestDriveCentric(context: LeadContextIngest) {

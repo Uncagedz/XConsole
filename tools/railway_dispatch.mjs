@@ -28,6 +28,9 @@ if (serviceName.includes('ai-api')) {
 } else if (serviceName.includes('dashboard')) {
   command = 'node';
   args = ['tools/serve_dashboard.mjs'];
+} else if (serviceName.includes('scheduler') || serviceName.includes('orchestrator')) {
+  command = 'pnpm';
+  args = ['--filter', '@xconsole/workflow-orchestrator', 'start'];
 }
 
 console.log(`Starting XConsole service role: ${serviceName}`);

@@ -1,7 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import type { ConnectorSummary, InventoryResponse, Vehicle } from '@drivecentric-ai/shared/xconsole';
-import { gateway } from './api';
+import type {
+  AutomationJobStatus,
+  ConnectorSummary,
+  InventoryResponse,
+  Vehicle,
+} from '@drivecentric-ai/shared/xconsole';
+import { gateway, type DeviceSummary } from './api';
 import {
   filterAndSortInventory,
   inventoryBreakdown,
@@ -177,7 +182,55 @@ export function VehiclePage() {
   const { vin = '' } = useParams();
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [error, setError] = useState('');
+  const [lookupJobs, setLookupJobs] = useState<AutomationJobStatus[]>([]);
+  const [lookupBusy, setLookupBusy] = useState(false);
+  const [lookupMessage, setLookupMessage] = useState('');
   useEffect(() => { void gateway.vehicle(vin).then(setVehicle).catch((value) => setError(String(value))); }, [vin]);
+
+  useEffect(() => {
+    if (!lookupJobs.some((job) => !['succeeded', 'failed', 'cancelled'].includes(job.status))) return;
+    const timer = window.setInterval(() => {
+      void Promise.all(lookupJobs.map((job) => gateway.automationJob(job.id)))
+        .then(async (jobs) => {
+          setLookupJobs(jobs);
+          if (jobs.every((job) => ['succeeded', 'failed', 'cancelled'].includes(job.status))) {
+            window.clearInterval(timer);
+            setVehicle(await gateway.vehicle(vin));
+          }
+        })
+        .catch((value) => setLookupMessage(value instanceof Error ? value.message : String(value)));
+    }, 2_500);
+    return () => window.clearInterval(timer);
+  }, [lookupJobs, vin]);
+
+  async function startLookup(connectorIds: Array<'reconvision' | 'onemicro'>) {
+    setLookupBusy(true);
+    setLookupMessage('');
+    try {
+      const jobs = await gateway.lookupVehicleSources(vin, connectorIds);
+      const createdAt = new Date().toISOString();
+      setLookupJobs(jobs.map((job) => ({
+        id: job.id,
+        connectorId: job.connectorId,
+        operation: job.operation,
+        status: job.approvalStatus === 'required' ? 'approval-required' : 'pending',
+        payload: job.payload,
+        result: null,
+        error: null,
+        attemptCount: 0,
+        maxAttempts: 3,
+        createdAt,
+        startedAt: null,
+        finishedAt: null,
+      })));
+      setLookupMessage('Lookup queued for the Windows Local Agent.');
+    } catch (value) {
+      setLookupMessage(value instanceof Error ? value.message : String(value));
+    } finally {
+      setLookupBusy(false);
+    }
+  }
+
   return (
     <Page title={vehicle ? vehicleTitle(vehicle) : 'Vehicle'} eyebrow={vin}>
       {error && <StateMessage>{error}</StateMessage>}
@@ -203,6 +256,10 @@ export function VehiclePage() {
               <dt>JD Power trade-in</dt><dd>{money(vehicle.jdPowerTradeIn ?? null)}</dd>
               <dt>LTV basis</dt><dd>{money(vehicle.ltvBasis ?? null)}</dd>
               <dt>Loan to value</dt><dd>{vehicle.loanToValue === null || vehicle.loanToValue === undefined ? '—' : `${vehicle.loanToValue.toFixed(2)}%`}</dd>
+              <dt>ReconVision stage</dt><dd>{vehicle.reconStage ?? 'Not synchronized'}</dd>
+              <dt>Frontline ready</dt><dd>{vehicle.frontlineReady === null || vehicle.frontlineReady === undefined ? 'Unknown' : vehicle.frontlineReady ? 'Yes' : 'No'}</dd>
+              <dt>1Micro key location</dt><dd>{vehicle.keyLocation ?? 'Not synchronized'}</dd>
+              <dt>Key holder</dt><dd>{vehicle.keyHolder ?? '—'}</dd>
             </dl>
             {vehicle.websiteUrl && <a className="ux-primary-link" href={vehicle.websiteUrl} target="_blank" rel="noreferrer">Open dealership listing ↗</a>}
           </div>
@@ -212,6 +269,29 @@ export function VehiclePage() {
           <article><span>JD Power trade-in</span><strong>{money(vehicle.jdPowerTradeIn ?? null)}</strong><small>{vehicle.loanToValue === null || vehicle.loanToValue === undefined ? 'LTV unavailable' : `${vehicle.loanToValue.toFixed(2)}% LTV`}</small></article>
           <article><span>Website photos</span><strong>{vehicle.photos.length}</strong><small>{vehicle.status ?? 'availability unknown'}</small></article>
           <article><span>Sources</span><strong>{vehicle.sourceStatuses.length}</strong><small>last {dateTime(vehicle.lastSynchronizedAt)}</small></article>
+        </div>
+        <div className="ux-panel">
+          <h2>Live VIN intelligence</h2>
+          <p>Queue authorized background lookups against the persistent ReconVision and 1Micro sessions on your Windows Local Agent.</p>
+          <div className="ux-actions">
+            <button type="button" disabled={lookupBusy} onClick={() => void startLookup(['reconvision'])}>Look up ReconVision</button>
+            <button type="button" disabled={lookupBusy} onClick={() => void startLookup(['onemicro'])}>Look up 1Micro</button>
+            <button className="primary" type="button" disabled={lookupBusy} onClick={() => void startLookup(['reconvision', 'onemicro'])}>Look up both</button>
+          </div>
+          {lookupMessage && <p className="ux-muted">{lookupMessage}</p>}
+          {lookupJobs.length > 0 && <div className="ux-source-grid">
+            {lookupJobs.map((job) => (
+              <article key={job.id} className={job.status === 'failed' ? 'error' : ''}>
+                <div><strong>{job.connectorId === 'onemicro' ? '1Micro' : 'ReconVision'}</strong><span className="ux-pill">{job.status}</span></div>
+                <p>{typeof job.result?.summary === 'string'
+                  ? job.result.summary
+                  : typeof job.error?.message === 'string'
+                    ? job.error.message
+                    : 'Waiting for the Local Agent.'}</p>
+              </article>
+            ))}
+          </div>}
+          <small className="ux-muted">Manual login/MFA is completed once in the Local Agent’s Chrome window. XConsole never stores portal passwords.</small>
         </div>
         <div className="ux-panel"><h2>Source status</h2><div className="ux-source-grid">
           {vehicle.sourceStatuses.map((source) => <article key={source.connectorId} className={source.error ? 'error' : ''}><div><strong>{source.displayName}</strong><span className="ux-pill">{source.status}</span></div><p>{source.error ?? 'No current error'}</p><small>{source.synchronizedAt ? new Date(source.synchronizedAt).toLocaleString() : 'Never synchronized'}</small></article>)}
@@ -300,6 +380,83 @@ export function BankBrainPage() {
         <h2>Cox Automotive / desk workflow</h2>
         <p>Open Inventory and sort by LTV. Each matched VIN now shows JD Power trade-in, LTV basis, and calculated loan-to-value for deal structuring.</p>
       </div>
+    </Page>
+  );
+}
+
+export function MessengerPage() {
+  const messengerWindow = useRef<Window | null>(null);
+  const [status, setStatus] = useState<'closed' | 'open' | 'blocked'>('closed');
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (messengerWindow.current?.closed) {
+        messengerWindow.current = null;
+        setStatus('closed');
+      }
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  function openMessenger() {
+    const opened = window.open(
+      'https://www.messenger.com/',
+      'xconsole-messenger',
+      'popup=yes,width=1180,height=860,resizable=yes,scrollbars=yes',
+    );
+    messengerWindow.current = opened;
+    setStatus(opened ? 'open' : 'blocked');
+    opened?.focus();
+  }
+
+  return (
+    <Page title="Messenger workspace" eyebrow="Direct customer conversations">
+      <div className="ux-metrics">
+        <article><span>Workspace</span><strong>{status === 'open' ? 'Open' : 'Ready'}</strong><small>Runs in your signed-in browser session</small></article>
+        <article><span>Credentials</span><strong>Browser only</strong><small>XConsole never receives your Facebook password or cookies</small></article>
+        <article><span>Sending</span><strong>Manual</strong><small>You remain in control of every message</small></article>
+      </div>
+      <div className="ux-panel ux-messenger-panel">
+        <h2>Open Messenger from XConsole</h2>
+        <p>Messenger prevents secure account pages from being embedded inside another website. XConsole opens a dedicated, reusable Messenger window instead, so you can sign in and work directly beside the dashboard without routing credentials through Railway.</p>
+        <div className="ux-actions">
+          <button className="primary" type="button" onClick={openMessenger}>
+            {status === 'open' ? 'Focus Messenger window' : 'Open Messenger workspace'}
+          </button>
+        </div>
+        {status === 'blocked' && <div className="ux-warning"><strong>Popup blocked</strong><span>Allow popups for this XConsole address, then try again.</span></div>}
+      </div>
+    </Page>
+  );
+}
+
+export function SettingsPage() {
+  const [devices, setDevices] = useState<DeviceSummary[] | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    void gateway.devices().then(setDevices).catch((value) => setError(value instanceof Error ? value.message : String(value)));
+  }, []);
+  return (
+    <Page title="Settings" eyebrow="Devices and secure execution">
+      {error && <StateMessage>{error}</StateMessage>}
+      {!devices && !error && <StateMessage>Loading registered devices…</StateMessage>}
+      {devices && <div className="ux-panel">
+        <h2>Windows Local Agent</h2>
+        {devices.length === 0
+          ? <p>No Local Agent is registered.</p>
+          : <div className="ux-source-grid">{devices.map((device) => {
+              const heartbeatAt = device.lastHeartbeat?.sentAt;
+              const fresh = heartbeatAt ? Date.now() - Date.parse(heartbeatAt) < 120_000 : false;
+              return (
+                <article key={device.id} className={fresh ? '' : 'error'}>
+                  <div><strong>{device.name}</strong><span className="ux-pill">{fresh ? device.lastHeartbeat?.status ?? 'online' : 'offline'}</span></div>
+                  <p>{device.lastHeartbeat?.capabilities.join(', ') || 'Waiting for first heartbeat'}</p>
+                  <small>{heartbeatAt ? `Last heartbeat ${new Date(heartbeatAt).toLocaleString()}` : 'Never connected'}</small>
+                </article>
+              );
+            })}</div>}
+        <p className="ux-muted">Portal profiles and credentials remain on the registered Windows device and are never deployed to Railway.</p>
+      </div>}
     </Page>
   );
 }

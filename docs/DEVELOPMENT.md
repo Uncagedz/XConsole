@@ -96,6 +96,27 @@ Before turning a capture into a fixture:
    them.
 4. Mark the connector fixture-tested; do not call it live-tested.
 
+## Activate ReconVision and 1Micro VIN lookups
+
+Use the reviewed recording to identify the real login URL, lookup URL, VIN input,
+result container, submit control, and result-field selectors. Configure those
+non-secret values with the `configure-portal` command documented in
+`apps/local-agent/README.md`, then run:
+
+```powershell
+pnpm --filter @xconsole/local-agent portal-login -- reconvision
+pnpm --filter @xconsole/local-agent portal-login -- onemicro
+pnpm --filter @xconsole/local-agent start
+```
+
+Complete login/MFA in the visible Chrome windows. Vehicle pages can then queue
+read-only VIN jobs. Routine lookups run headlessly; an authentication challenge
+stops the job and requests manual reauthentication instead of bypassing it.
+
+Messenger is available at `/messenger`. It opens a reusable browser window
+because Facebook prevents secure Messenger pages from being embedded in an
+XConsole iframe.
+
 ## Legacy compatibility
 
 The original FastAPI application remains runnable with:

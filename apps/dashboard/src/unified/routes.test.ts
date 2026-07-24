@@ -11,6 +11,7 @@ describe('Phase 1 dashboard routes', () => {
       '/customers/:id',
       '/tasks',
       '/marketplace',
+      '/messenger',
       '/bank-brain',
       '/connectors',
       '/connectors/:connectorId',

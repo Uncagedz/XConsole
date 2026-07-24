@@ -201,6 +201,36 @@ export function createApp(env: GatewayEnv, store: GatewayStoreContract = new Gat
     }
     response.json({ vehicle });
   }));
+  app.post('/api/vehicles/:vin/source-lookups', requireDashboard, asyncRoute(async (request, response) => {
+    const vin = vinSchema.parse(request.params.vin);
+    const payload = z.object({
+      connectorIds: z.array(z.enum(['reconvision', 'onemicro'])).min(1).max(2),
+    }).strict().parse(request.body);
+    const connectorIds = [...new Set(payload.connectorIds)];
+    const jobs = [];
+    for (const connectorId of connectorIds) {
+      const connector = await store.getConnector(connectorId);
+      if (!connector || connector.executionLocation !== 'local-agent') {
+        response.status(409).json({
+          error: {
+            type: 'configuration',
+            message: `${connectorId} is not configured as a Local Agent connector.`,
+          },
+        });
+        return;
+      }
+      jobs.push(await store.createJob(connectorId, 'lookup-vin', false, { vin }));
+    }
+    response.status(202).json({ jobs });
+  }));
+  app.get('/api/automation/jobs/:jobId', requireDashboard, asyncRoute(async (request, response) => {
+    const job = await store.getJob(request.params.jobId);
+    if (!job) {
+      response.status(404).json({ error: { type: 'not_found', message: 'Automation job not found' } });
+      return;
+    }
+    response.json({ job });
+  }));
 
   app.post('/api/extension/drivecentric/context', requireDashboard, asyncRoute(async (request, response) => {
     const context = leadContextIngestSchema.parse(request.body);
