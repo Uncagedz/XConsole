@@ -29,6 +29,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @drivecentric-ai/shared build
       - run: pnpm --filter @xconsole/drivecentric-extension test
       - run: pnpm --filter @xconsole/drivecentric-extension build
       - run: node scripts/verify-extension-package.mjs apps/drivecentric-extension/dist
