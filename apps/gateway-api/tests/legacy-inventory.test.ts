@@ -94,6 +94,32 @@ describe('legacy inventory bridge', () => {
     expect(inventory.items).toHaveLength(1);
   });
 
+  it('keeps the last complete live snapshot when the upstream endpoint temporarily returns no VINs', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [{
+          vin: '1HGCM82633A004352',
+          title: '2025 Honda Accord Touring',
+          detail_url: 'https://dealer.example/new/accord',
+        }],
+        active_count: 1,
+        source_status: { fetched_at: '2026-07-23T12:00:00Z' },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [],
+        active_count: 0,
+        source_status: { fetched_at: '2026-07-23T12:01:00Z' },
+      }), { status: 200 })) as unknown as typeof fetch;
+    const service = new InventoryService(configuredEnv, new GatewayStore(), fetchMock);
+
+    await service.list();
+    const inventory = await service.list(false, true);
+
+    expect(inventory.items.map((item) => item.vin)).toEqual(['1HGCM82633A004352']);
+    expect(inventory.source.label).toBe('Last good live inventory cache');
+    expect(inventory.source.warning).toContain('temporarily empty');
+  });
+
   it('persists normalized records when an explicit live synchronization completes', async () => {
     const store = new GatewayStore();
     const fetchMock = vi.fn()

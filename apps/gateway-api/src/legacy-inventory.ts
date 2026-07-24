@@ -299,6 +299,11 @@ function storedSource(items: Vehicle[], warning: string | null, configured: bool
 
 export class InventoryService {
   private cached: InventoryResponse | null = null;
+  // The upstream inventory endpoint can briefly return an empty collection while
+  // its own long-running refresh is writing a new snapshot.  Keep the last
+  // validated live response separate from the short view cache so a momentary
+  // upstream gap never clears the dealership's working inventory screen.
+  private lastGoodLive: InventoryResponse | null = null;
   private cacheExpiresAt = 0;
   private syncInFlight: Promise<InventoryResponse> | null = null;
   private autoSyncTimer: NodeJS.Timeout | null = null;
@@ -375,7 +380,37 @@ export class InventoryService {
       const persistence = persist && this.store.upsertVehicles
         ? await this.store.upsertVehicles(items)
         : null;
-      return this.remember(inventoryResponseSchema.parse({
+      if (!items.length) {
+        const preserved = this.lastGoodLive?.items.length
+          ? this.lastGoodLive
+          : stored.length
+            ? inventoryResponseSchema.parse({
+                items: stored,
+                count: stored.length,
+                ...storedCounts(stored),
+                source: storedSource(stored, null, true),
+              })
+            : null;
+        if (preserved) {
+          return this.remember(inventoryResponseSchema.parse({
+            ...preserved,
+            source: {
+              ...preserved.source,
+              mode: 'gateway-database',
+              label: 'Last good live inventory cache',
+              live: false,
+              stale: true,
+              configured: true,
+              warning: 'The upstream inventory refresh is temporarily empty. Showing the last complete live snapshot while it recovers.',
+              details: {
+                ...preserved.source.details,
+                ...(payload.source_status ?? {}),
+              },
+            },
+          }), 5_000);
+        }
+      }
+      const response = inventoryResponseSchema.parse({
         items,
         count: items.length,
         activeCount,
@@ -396,7 +431,9 @@ export class InventoryService {
             ...(persistence ? { persistence } : {}),
           },
         },
-      }));
+      });
+      if (items.length) this.lastGoodLive = response;
+      return this.remember(response);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown inventory adapter failure';
       return this.remember(inventoryResponseSchema.parse({

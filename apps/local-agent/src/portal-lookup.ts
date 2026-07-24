@@ -130,16 +130,21 @@ async function submitReviewedLogin(
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByRole('textbox', { name: 'Password' }).fill(credentials.password);
     await page.getByRole('button', { name: 'Sign In' }).click();
-    await page.locator('#search_target').first().waitFor({ state: 'visible', timeout: timeoutMs });
     return;
   }
 
   if (connectorId === 'carfax') {
-    await page.getByRole('textbox', { name: 'Email address' }).fill(credentials.username);
+    // CARFAX's Auth0 page renders the visible "Email address" text without a
+    // programmatic label. Use its stable identifier rather than an ARIA name
+    // that disappears during the redirect from carfaxonline.com.
+    const username = page.locator('#username, input[name="username"], input[type="email"]').first();
+    await username.waitFor({ state: 'visible', timeout: timeoutMs });
+    await username.fill(credentials.username);
     await page.getByRole('button', { name: 'Continue' }).click();
-    await page.getByRole('textbox', { name: 'Password' }).fill(credentials.password);
+    const password = page.locator('input[type="password"]:visible').first();
+    await password.waitFor({ state: 'visible', timeout: timeoutMs });
+    await password.fill(credentials.password);
     await page.getByRole('button', { name: 'Continue' }).click();
-    await page.waitForURL(/https:\/\/www\.carfaxonline\.com\//i, { timeout: timeoutMs });
     return;
   }
 
@@ -169,6 +174,26 @@ async function navigateToPortalLookup(
   await search.waitFor({ state: 'visible', timeout: portal.timeoutMs });
   await search.click();
   await page.waitForURL(new URL(portal.lookupUrl).toString(), { timeout: portal.timeoutMs });
+}
+
+async function waitForInteractiveAuthentication(
+  page: Page,
+  connectorId: PortalConnectorId,
+  timeoutMs: number,
+) {
+  const deadline = Date.now() + Math.max(timeoutMs, 10 * 60_000);
+  while (await hasAuthenticationChallenge(page)) {
+    if (Date.now() >= deadline) {
+      const artifacts = await saveFailureArtifacts(page, connectorId);
+      throw new PortalLookupError(
+        'reauthentication_required',
+        `${connectorId} login did not complete within the interactive sign-in window.`,
+        true,
+        artifacts,
+      );
+    }
+    await page.waitForTimeout(1_000);
+  }
 }
 
 export async function loginToPortal(
@@ -207,15 +232,11 @@ export async function loginToPortal(
       );
       prompt.close();
     }
+    await waitForInteractiveAuthentication(page, connectorId, portal.timeoutMs);
     await navigateToPortalLookup(page, connectorId, portal);
     if (await hasAuthenticationChallenge(page)) {
-      const artifacts = await saveFailureArtifacts(page, connectorId);
-      throw new PortalLookupError(
-        'reauthentication_required',
-        `${connectorId} still appears to be on an authentication page.`,
-        true,
-        artifacts,
-      );
+      await waitForInteractiveAuthentication(page, connectorId, portal.timeoutMs);
+      await navigateToPortalLookup(page, connectorId, portal);
     }
     return { connectorId, authenticated: true, currentUrl: page.url() };
   } finally {
@@ -356,7 +377,7 @@ async function collectPortalMediaUrls(page: Page, selector = 'img, source, a[hre
   return page.locator(selector).evaluateAll((elements) => {
     const seen = new Set<string>();
     const urls: string[] = [];
-    const add = (raw: string | null | undefined) => {
+    const add = (raw: string | null | undefined, source = '') => {
       const value = String(raw ?? '').trim();
       if (!value || value.startsWith('javascript:')) return;
       let resolved = value;
@@ -366,6 +387,7 @@ async function collectPortalMediaUrls(page: Page, selector = 'img, source, a[hre
         return;
       }
       if (!/^https?:\/\//i.test(resolved) && !/^data:image\//i.test(resolved)) return;
+      if (source === 'href' && !/(?:\.(?:avif|gif|jpe?g|png|svg|webp)(?:$|[?#])|\b(?:avatar|image|images|media|photo|photos|attachment)s?\b)/i.test(resolved)) return;
       const key = resolved.toLowerCase();
       if (seen.has(key)) return;
       seen.add(key);
@@ -373,12 +395,12 @@ async function collectPortalMediaUrls(page: Page, selector = 'img, source, a[hre
     };
     for (const element of elements) {
       for (const name of ['src', 'currentSrc', 'href', 'data-src', 'data-original', 'data-image', 'data-url']) {
-        add(element.getAttribute(name));
+        add(element.getAttribute(name), name);
       }
       const style = element.getAttribute('style') ?? '';
-      for (const match of style.matchAll(/url\((?:["']?)([^)"']+)(?:["']?)\)/gi)) add(match[1]);
+      for (const match of style.matchAll(/url\((?:["']?)([^)"']+)(?:["']?)\)/gi)) add(match[1], 'style');
       if (element instanceof HTMLImageElement && element.naturalWidth > 0 && element.naturalHeight > 0) {
-        add(element.currentSrc || element.src);
+        add(element.currentSrc || element.src, 'img');
       }
     }
     return urls;
@@ -453,6 +475,8 @@ async function lookupOneMicro(page: Page, portal: PortalLookupConfig, vin: strin
       ...detailFields,
       ...historyFields,
       activity: historyFields.activity.length ? historyFields.activity : detailFields.activity,
+      lastCheckedOutBy: historyFields.lastCheckedOutBy ?? detailFields.lastCheckedOutBy,
+      lastCheckedOutAt: historyFields.lastCheckedOutAt ?? detailFields.lastCheckedOutAt,
       keyImageUrl: historyFields.keyImageUrl ?? detailFields.keyImageUrl,
       location: labeledValue(summary, 'Tag Location')
         ?? detailFields.location,
@@ -463,22 +487,53 @@ async function lookupOneMicro(page: Page, portal: PortalLookupConfig, vin: strin
 }
 
 async function lookupCarfax(page: Page, portal: PortalLookupConfig, vin: string) {
-  const reportUrl = new URL(`/vhr/${encodeURIComponent(vin)}`, portal.lookupUrl).toString();
-  await page.goto(reportUrl, { waitUntil: 'domcontentloaded', timeout: portal.timeoutMs });
+  // CARFAX for Dealers no longer exposes a stable /vhr/{vin} report route.
+  // Submit through the authenticated dealer home screen, which is also the
+  // normal human workflow and preserves any required verification state.
+  const interactionTimeout = Math.min(portal.timeoutMs, 45_000);
+  await page.goto(portal.lookupUrl, { waitUntil: 'domcontentloaded', timeout: interactionTimeout });
   if (await hasAuthenticationChallenge(page)) {
     throw new PortalLookupError(
       'reauthentication_required',
-      'carfax needs manual login or MFA. Run the portal-login command on the Windows Local Agent.',
+      'CARFAX needs manual login or MFA. Run the portal-login command on the Windows Local Agent.',
       true,
     );
   }
-  await page.getByRole('heading', { name: 'CARFAX Report' }).waitFor({
-    state: 'visible',
-    timeout: portal.timeoutMs,
-  });
+  const vinInput = page.locator(portal.vinInputSelector).first();
+  await vinInput.waitFor({ state: 'visible', timeout: interactionTimeout });
+  await vinInput.fill(vin);
+  const runReport = page.getByRole('button', { name: 'Run Report' });
+  await runReport.waitFor({ state: 'visible', timeout: interactionTimeout });
+  await runReport.click();
+  const reportHeading = page.getByRole('heading', { name: 'CARFAX Report' });
+  const deadline = Date.now() + interactionTimeout;
+  while (Date.now() < deadline) {
+    if (await hasAuthenticationChallenge(page)) {
+      throw new PortalLookupError(
+        'reauthentication_required',
+        'CARFAX requires interactive human verification before this report can be opened.',
+        true,
+      );
+    }
+    if (await reportHeading.count() && await reportHeading.isVisible()) break;
+    const reportedError = page.getByText('An unexpected error has occurred. Please try again.');
+    if (await reportedError.count() && await reportedError.isVisible()) {
+      throw new PortalLookupError(
+        'portal_unavailable',
+        'CARFAX did not accept the dealer report request. Retry from the authenticated CARFAX session.',
+      );
+    }
+    await page.waitForTimeout(500);
+  }
+  if (!await reportHeading.count() || !await reportHeading.isVisible()) {
+    throw new PortalLookupError(
+      'portal_unavailable',
+      'CARFAX did not display the requested report before the lookup window expired.',
+    );
+  }
   await page.getByText(`VIN: ${vin}`, { exact: false }).first().waitFor({
     state: 'visible',
-    timeout: portal.timeoutMs,
+    timeout: interactionTimeout,
   });
   const summary = (await page.locator('main').innerText()).trim().slice(0, 100_000);
   return {
