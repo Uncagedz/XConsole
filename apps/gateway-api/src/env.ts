@@ -11,7 +11,8 @@ const schema = z.object({
   LEGACY_AUTOMATION_API_URL: z.string().url().optional(),
   XCONSOLE_LEGACY_API_TOKEN: z.string().min(32).optional(),
   LEGACY_INVENTORY_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(30_000),
-  LEGACY_INVENTORY_CACHE_TTL_MS: z.coerce.number().int().min(1_000).max(300_000).default(30_000),
+  LEGACY_INVENTORY_CACHE_TTL_MS: z.coerce.number().int().min(1_000).max(300_000).default(10_000),
+  LEGACY_INVENTORY_AUTO_SYNC_MS: z.coerce.number().int().min(15_000).max(3_600_000).default(60_000),
   XCONSOLE_ALLOW_INSECURE_DEV: z
     .string()
     .optional()

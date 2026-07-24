@@ -3,7 +3,6 @@ import { Navigate, createBrowserRouter, createRoutesFromElements, Route } from '
 import {
   ConnectorDetailPage,
   ConnectorsPage,
-  DashboardPage,
   BankBrainPage,
   InventoryPage,
   MessengerPage,
@@ -11,6 +10,7 @@ import {
   SettingsPage,
   VehiclePage,
 } from './unified/pages';
+import { CommandCenterPage } from './unified/CommandCenterPage';
 import { UnifiedShell } from './unified/Shell';
 
 const LegacyAppShell = lazy(async () => {
@@ -38,7 +38,7 @@ export const router = createBrowserRouter(
     <>
       <Route path="/" element={<UnifiedShell />}>
         <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="dashboard" element={<CommandCenterPage />} />
         <Route path="inventory" element={<InventoryPage />} />
         <Route path="inventory/:vin" element={<VehiclePage />} />
         <Route path="leads" element={<PartialPage title="Leads" description="DriveCentric lead and conversation ingestion is connected through the shared gateway contract." />} />

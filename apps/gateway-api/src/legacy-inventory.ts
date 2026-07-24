@@ -41,8 +41,22 @@ const valuationStatusSchema = z.object({
   diagnostics: z.record(z.unknown()).optional(),
 }).passthrough();
 
+const vehicleAssetsSchema = z.object({
+  vin: vinSchema,
+  loaded_at: z.string().nullable().optional(),
+  sticker_url: z.string().url().nullable().optional(),
+  sticker_view_url: z.string().nullable().optional(),
+  sticker_highlights: z.array(z.string()).default([]),
+  carfax_url: z.string().url().nullable().optional(),
+  carfax_view_url: z.string().nullable().optional(),
+  carfax_summary: z.record(z.unknown()).nullable().optional(),
+  buyer_profile: z.record(z.unknown()).nullable().optional(),
+  marketing_summary: z.array(z.string()).default([]),
+}).passthrough();
+
 export type InventorySyncRequest = z.input<typeof syncRequestSchema>;
 export type ValuationStatus = z.infer<typeof valuationStatusSchema>;
+export type VehicleAssets = z.infer<typeof vehicleAssetsSchema>;
 
 export class InventorySyncError extends Error {
   readonly statusCode = 502;
@@ -145,6 +159,15 @@ export function normalizeLegacyVehicle(
   const synchronizedAt = sourceTimestamp(sourceStatus);
   const status = firstText(item, ['status_label', 'inventory_status', 'status']) ?? 'active';
   const photoUrls = photos(item);
+  const rawRetailPrice = numberValue(item.retailPrice ?? item.retail_price ?? item.sale_price ?? item.price);
+  const jdPowerTradeIn = numberValue(item.jdPowerTradeIn ?? item.jd_power_trade_in);
+  // Dealer listing cards sometimes expose a monthly payment in the generic
+  // "price" field. Never turn that into an implausible sale price or LTV.
+  const paymentMisread = rawRetailPrice !== null
+    && jdPowerTradeIn !== null
+    && jdPowerTradeIn >= 5_000
+    && rawRetailPrice < jdPowerTradeIn * 0.25;
+  const retailPrice = paymentMisread ? null : rawRetailPrice;
 
   return {
     id: `legacy-${createHash('sha256').update(vin).digest('hex').slice(0, 16)}`,
@@ -158,12 +181,12 @@ export function normalizeLegacyVehicle(
     condition: conditionFor(item, websiteUrl),
     status: status.toLowerCase(),
     mileage: integerValue(item.mileage ?? item.miles ?? item.odometer),
-    retailPrice: numberValue(item.retailPrice ?? item.retail_price ?? item.sale_price ?? item.price),
+    retailPrice,
     msrp: numberValue(item.msrp),
     cost: numberValue(item.cost),
-    jdPowerTradeIn: numberValue(item.jdPowerTradeIn ?? item.jd_power_trade_in),
-    loanToValue: numberValue(item.loanToValue ?? item.jd_power_ltv ?? item.ltv),
-    ltvBasis: numberValue(item.ltvBasis ?? item.bank_ltv_basis),
+    jdPowerTradeIn,
+    loanToValue: paymentMisread ? null : numberValue(item.loanToValue ?? item.jd_power_ltv ?? item.ltv),
+    ltvBasis: paymentMisread ? null : numberValue(item.ltvBasis ?? item.bank_ltv_basis),
     daysInStock: integerValue(item.daysInStock ?? item.days_in_stock),
     websiteUrl,
     photos: photoUrls,
@@ -183,6 +206,7 @@ export function normalizeLegacyVehicle(
         source: 'legacy-automation-api',
         photoCount: photoUrls.length,
         condition: conditionFor(item, websiteUrl),
+        ...(paymentMisread ? { priceWarning: 'Rejected a likely monthly-payment value from the listing card.' } : {}),
       },
     }],
     salesTalkingPoints: [],
@@ -238,6 +262,8 @@ function storedSource(items: Vehicle[], warning: string | null, configured: bool
 export class InventoryService {
   private cached: InventoryResponse | null = null;
   private cacheExpiresAt = 0;
+  private syncInFlight: Promise<InventoryResponse> | null = null;
+  private autoSyncTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly env: GatewayEnv,
@@ -352,6 +378,29 @@ export class InventoryService {
     return (await this.list()).items.find((vehicle) => vehicle.vin === vin.toUpperCase());
   }
 
+  async status() {
+    const inventory = this.cached ?? await this.list();
+    return {
+      ok: true as const,
+      observedAt: new Date().toISOString(),
+      refreshIntervalMs: this.env.LEGACY_INVENTORY_AUTO_SYNC_MS,
+      viewRefreshIntervalMs: this.env.LEGACY_INVENTORY_CACHE_TTL_MS,
+      count: inventory.count,
+      activeCount: inventory.activeCount,
+      inTransitCount: inventory.inTransitCount,
+      source: inventory.source,
+    };
+  }
+
+  async vehicleAssets(vin: string, refresh = false): Promise<VehicleAssets> {
+    const cleanVin = vinSchema.parse(vin);
+    return vehicleAssetsSchema.parse(await this.legacyJson(
+      `/api/vehicles/${encodeURIComponent(cleanVin)}/assets?refresh=${refresh ? 'true' : 'false'}`,
+      {},
+      refresh ? 120_000 : this.env.LEGACY_INVENTORY_TIMEOUT_MS,
+    ));
+  }
+
   async valuationStatus(): Promise<ValuationStatus> {
     return valuationStatusSchema.parse(
       await this.legacyJson('/api/bank-brain/valuations/status'),
@@ -377,6 +426,33 @@ export class InventoryService {
   }
 
   async sync(input: InventorySyncRequest = {}) {
+    if (this.syncInFlight) return this.syncInFlight;
+    this.syncInFlight = this.performSync(input);
+    try {
+      return await this.syncInFlight;
+    } finally {
+      this.syncInFlight = null;
+    }
+  }
+
+  startAutoSync() {
+    if (!this.configured || this.autoSyncTimer) return;
+    const run = () => {
+      void this.sync({ persist: true, timeoutSeconds: 180 }).catch((error: unknown) => {
+        process.stderr.write(`${JSON.stringify({
+          level: 'warn',
+          event: 'inventory.auto_sync_failed',
+          message: error instanceof Error ? error.message : 'Unknown inventory synchronization error',
+        })}\n`);
+      });
+    };
+    this.autoSyncTimer = setInterval(run, this.env.LEGACY_INVENTORY_AUTO_SYNC_MS);
+    this.autoSyncTimer.unref();
+    const initial = setTimeout(run, 5_000);
+    initial.unref();
+  }
+
+  private async performSync(input: InventorySyncRequest = {}) {
     const request = syncRequestSchema.parse(input);
     if (!this.configured) {
       throw new Error('Live inventory sync is not configured');

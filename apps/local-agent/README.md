@@ -24,8 +24,8 @@ page, and press Enter. Review the sanitized output before copying any fixture in
 
 ## Configure ReconVision or 1Micro
 
-Portal credentials are never placed in environment variables or XConsole. First
-record and review the authorized page, then configure only its URLs and selectors:
+Portal credentials are never saved in XConsole or committed to Git. First record
+and review the authorized page, then configure only its URLs and selectors:
 
 ```powershell
 $env:XCONSOLE_PORTAL_LOGIN_URL='https://reviewed-login-url'
@@ -48,6 +48,12 @@ pnpm --filter @xconsole/local-agent portal-login -- onemicro
 Complete login and MFA yourself. Routine `lookup-vin` jobs then reuse the separate
 portal profiles in headless mode. Authentication challenges stop the job and mark
 the connector as requiring reauthentication; they are never bypassed.
+
+For the reviewed ReconVision and 1Micro login pages, unattended first-time sign-in
+may use `XCONSOLE_PORTAL_USERNAME` and `XCONSOLE_PORTAL_PASSWORD` for that command
+only. They are read from the process environment, submitted directly to the portal,
+and are not written to the agent configuration, logs, Railway, or Git. Clear both
+variables immediately after the command completes.
 
 ## Windows startup
 

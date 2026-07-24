@@ -62,7 +62,13 @@ async function main() {
   }
   if (command === 'portal-login') {
     const connectorId = portalConnectorIdSchema.parse(process.argv[3]);
-    await loginToPortal(config, connectorId);
+    const username = process.env.XCONSOLE_PORTAL_USERNAME;
+    const password = process.env.XCONSOLE_PORTAL_PASSWORD;
+    await loginToPortal(
+      config,
+      connectorId,
+      username && password ? { username, password } : undefined,
+    );
     logger.info('portal.authenticated', { connectorId });
     return;
   }

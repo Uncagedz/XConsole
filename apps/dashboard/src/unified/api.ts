@@ -23,6 +23,28 @@ const valuationStatusSchema = z.object({
   diagnostics: z.record(z.unknown()).optional(),
 });
 export type ValuationStatus = z.infer<typeof valuationStatusSchema>;
+const inventoryStatusSchema = z.object({
+  ok: z.literal(true),
+  observedAt: z.string().datetime(),
+  refreshIntervalMs: z.number().int().positive(),
+  viewRefreshIntervalMs: z.number().int().positive(),
+  count: z.number().int().nonnegative(),
+  activeCount: z.number().int().nonnegative(),
+  inTransitCount: z.number().int().nonnegative(),
+  source: inventoryResponseSchema.shape.source,
+});
+export type InventoryStatus = z.infer<typeof inventoryStatusSchema>;
+const vehicleAssetsSchema = z.object({
+  vin: z.string(),
+  loaded_at: z.string().nullable().optional(),
+  sticker_url: z.string().url().nullable().optional(),
+  sticker_highlights: z.array(z.string()).default([]),
+  carfax_url: z.string().url().nullable().optional(),
+  carfax_summary: z.record(z.unknown()).nullable().optional(),
+  buyer_profile: z.record(z.unknown()).nullable().optional(),
+  marketing_summary: z.array(z.string()).default([]),
+}).passthrough();
+export type VehicleAssets = z.infer<typeof vehicleAssetsSchema>;
 const deviceSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -101,6 +123,9 @@ export const gateway = {
   async inventory(): Promise<InventoryResponse> {
     return request<InventoryResponse>('/api/inventory/active', inventoryResponseSchema);
   },
+  async inventoryStatus(): Promise<InventoryStatus> {
+    return request<InventoryStatus>('/api/inventory/status', inventoryStatusSchema);
+  },
   async syncInventory(): Promise<InventoryResponse> {
     return request<InventoryResponse>('/api/inventory/sync-live', inventoryResponseSchema, {
       method: 'POST',
@@ -122,6 +147,12 @@ export const gateway = {
   },
   async vehicle(vin: string): Promise<Vehicle> {
     return (await request<{ vehicle: Vehicle }>(`/api/vehicles/${encodeURIComponent(vin)}`, z.object({ vehicle: vehicleSchema }))).vehicle;
+  },
+  async vehicleAssets(vin: string, refresh = false): Promise<VehicleAssets> {
+    return request<VehicleAssets>(
+      `/api/vehicles/${encodeURIComponent(vin)}/assets?refresh=${refresh ? 'true' : 'false'}`,
+      vehicleAssetsSchema,
+    );
   },
   async lookupVehicleSources(
     vin: string,

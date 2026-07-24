@@ -37,6 +37,7 @@ function asyncRoute(handler: AsyncRoute) {
 export function createApp(env: GatewayEnv, store: GatewayStoreContract = new GatewayStore()) {
   const app = express();
   const inventory = new InventoryService(env, store);
+  if (env.NODE_ENV === 'production') inventory.startAutoSync();
   const origins = new Set(
     `${env.CORS_ORIGINS},${env.CHROME_EXTENSION_ORIGINS}`
       .split(',')
@@ -153,6 +154,9 @@ export function createApp(env: GatewayEnv, store: GatewayStoreContract = new Gat
   app.get('/api/inventory/active', requireDashboard, asyncRoute(async (_request, response) => {
     response.json(await inventory.list());
   }));
+  app.get('/api/inventory/status', requireDashboard, asyncRoute(async (_request, response) => {
+    response.json(await inventory.status());
+  }));
   app.post('/api/inventory/sync-live', requireDashboard, asyncRoute(async (request, response) => {
     response.json(await inventory.sync({
       sourceUrl: request.body?.sourceUrl,
@@ -200,6 +204,11 @@ export function createApp(env: GatewayEnv, store: GatewayStoreContract = new Gat
       return;
     }
     response.json({ vehicle });
+  }));
+  app.get('/api/vehicles/:vin/assets', requireDashboard, asyncRoute(async (request, response) => {
+    const vin = vinSchema.parse(request.params.vin);
+    const refresh = z.enum(['true', 'false']).default('false').parse(request.query.refresh);
+    response.json(await inventory.vehicleAssets(vin, refresh === 'true'));
   }));
   app.post('/api/vehicles/:vin/source-lookups', requireDashboard, asyncRoute(async (request, response) => {
     const vin = vinSchema.parse(request.params.vin);

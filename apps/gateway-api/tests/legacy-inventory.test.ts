@@ -160,4 +160,42 @@ describe('legacy inventory bridge', () => {
       }),
     );
   });
+
+  it('rejects a monthly payment misread instead of publishing a false price and LTV', () => {
+    const vehicle = normalizeLegacyVehicle({
+      vin: '5UX23EM05R9T95534',
+      title: '2024 BMW X7 xDrive40i',
+      price: '$799',
+      jd_power_trade_in: '$59,800',
+      jd_power_ltv: '5.67',
+      bank_ltv_basis: '$3,391',
+    }, { last_synced_at: '2026-07-23T12:00:00Z' });
+
+    expect(vehicle?.retailPrice).toBeNull();
+    expect(vehicle?.loanToValue).toBeNull();
+    expect(vehicle?.ltvBasis).toBeNull();
+    expect(vehicle?.sourceStatuses[0]?.details.priceWarning).toContain('monthly-payment');
+  });
+
+  it('loads cached CARFAX and window-sticker intelligence automatically for a VIN', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      vin: '1HGCM82633A004352',
+      loaded_at: '2026-07-23T23:45:00Z',
+      sticker_url: 'https://dealer.example/window-sticker.pdf',
+      sticker_highlights: ['Engine: 2.0L Turbo'],
+      carfax_url: 'https://www.carfax.com/VehicleHistory/p/Report.cfx',
+      carfax_summary: { highlights: ['One owner'] },
+      marketing_summary: ['Ideal buyer: daily commuter.'],
+    }), { status: 200 })) as unknown as typeof fetch;
+    const service = new InventoryService(configuredEnv, new GatewayStore(), fetchMock);
+
+    const assets = await service.vehicleAssets('1HGCM82633A004352', true);
+
+    expect(assets.sticker_highlights).toEqual(['Engine: 2.0L Turbo']);
+    expect(assets.carfax_summary?.highlights).toEqual(['One owner']);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://legacy.example/api/vehicles/1HGCM82633A004352/assets?refresh=true',
+      expect.objectContaining({ headers: expect.any(Headers) }),
+    );
+  });
 });
