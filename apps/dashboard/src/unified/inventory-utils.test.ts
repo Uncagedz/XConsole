@@ -117,5 +117,18 @@ describe('unified inventory presentation', () => {
       active: true,
       summary: '1 match found from preloaded inventory metadata',
     });
+    expect(inventorySearchInsight(vehicles, 'hybrid under $30k with third row').criteria).toEqual([
+      '≤ $30,000',
+      'third row',
+      'hybrid',
+      '2/2 metadata-ready',
+    ]);
+  });
+
+  it('treats a full VIN as one search criterion', () => {
+    expect(inventorySearchInsight(vehicles, '2C4RC1BG3TR186903').criteria).toEqual([
+      'VIN 2C4RC1BG3TR186903',
+      '2/2 metadata-ready',
+    ]);
   });
 });
