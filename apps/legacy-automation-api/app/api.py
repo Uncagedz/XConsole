@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from io import BytesIO, StringIO
 from pathlib import Path
@@ -4411,8 +4411,15 @@ def _prime_inventory_asset_summaries(items: list[dict[str, Any]]) -> dict[str, A
 
 
 def _prefetch_inventory_detail_metadata(items: list[dict[str, Any]]) -> dict[str, Any]:
-    """Populate searchable specs and complete photo sets before inventory is published."""
-    stats = {"requested": 0, "fetched": 0, "cached": 0, "errors": 0, "with_metadata": 0}
+    """Start bounded foreground enrichment and let unfinished VINs continue safely."""
+    stats = {
+        "requested": 0,
+        "fetched": 0,
+        "cached": 0,
+        "errors": 0,
+        "with_metadata": 0,
+        "background": 0,
+    }
     try:
         configured_workers = int(os.getenv("INVENTORY_METADATA_WORKERS", "48") or "48")
     except ValueError:
@@ -4422,6 +4429,11 @@ def _prefetch_inventory_detail_metadata(items: list[dict[str, Any]]) -> dict[str
         request_timeout = float(os.getenv("INVENTORY_METADATA_TIMEOUT_SECONDS", "6") or "6")
     except ValueError:
         request_timeout = 6.0
+    try:
+        foreground_budget = float(os.getenv("INVENTORY_METADATA_FOREGROUND_SECONDS", "35") or "35")
+    except ValueError:
+        foreground_budget = 35.0
+    foreground_budget = min(60.0, max(5.0, foreground_budget))
 
     targets: list[tuple[str, str, dict[str, Any]]] = []
     for item in items:
@@ -4448,7 +4460,7 @@ def _prefetch_inventory_detail_metadata(items: list[dict[str, Any]]) -> dict[str
 
     stats["requested"] = len(targets)
 
-    def fetch_target(target: tuple[str, str, dict[str, Any]]) -> tuple[str, str, dict[str, Any], dict[str, Any] | None]:
+    def fetch_target(target: tuple[str, str, dict[str, Any]]) -> tuple[bool, bool]:
         clean_vin, detail_url, existing = target
         try:
             headers = {
@@ -4458,26 +4470,15 @@ def _prefetch_inventory_detail_metadata(items: list[dict[str, Any]]) -> dict[str
             with httpx.Client(timeout=request_timeout, follow_redirects=True, headers=headers) as client:
                 response = client.get(detail_url)
             if response.status_code >= 400:
-                return clean_vin, detail_url, existing, None
+                return False, False
             links = _extract_asset_links_from_html(response.text, base_url=detail_url)
-            return clean_vin, detail_url, existing, {
+            fetched = {
                 "quick_specs": _extract_quick_specs_from_html(response.text),
                 "photos": _extract_vehicle_photo_urls_from_html(response.text, base_url=detail_url),
                 "sticker_url": links.get("sticker_url"),
                 "carfax_url": links.get("carfax_url"),
                 "carfax_facts": _extract_carfax_facts_from_html(response.text),
             }
-        except Exception:
-            return clean_vin, detail_url, existing, None
-
-    if targets:
-        with ThreadPoolExecutor(max_workers=min(workers, len(targets)), thread_name_prefix="inventory-metadata") as executor:
-            results = list(executor.map(fetch_target, targets))
-        now = datetime.now(timezone.utc).isoformat()
-        for clean_vin, detail_url, existing, fetched in results:
-            if not fetched:
-                stats["errors"] += 1
-                continue
             specs = dict(existing.get("quick_specs") if isinstance(existing.get("quick_specs"), dict) else {})
             specs.update(fetched.get("quick_specs") or {})
             specs = _derive_powertrain_specs(specs)
@@ -4487,6 +4488,7 @@ def _prefetch_inventory_detail_metadata(items: list[dict[str, Any]]) -> dict[str
             ])
             carfax_facts = dict(existing.get("carfax_facts") if isinstance(existing.get("carfax_facts"), dict) else {})
             carfax_facts.update(fetched.get("carfax_facts") or {})
+            now = datetime.now(timezone.utc).isoformat()
             payload = {
                 **existing,
                 "vin": clean_vin,
@@ -4502,9 +4504,30 @@ def _prefetch_inventory_detail_metadata(items: list[dict[str, Any]]) -> dict[str
                 "metadata_source": "inventory_detail_prefetch",
             }
             _safe_write_json(_vehicle_assets_cache_path(clean_vin), payload)
+            return True, bool(specs.get("engine") and specs.get("transmission"))
+        except Exception:
+            return False, False
+
+    if targets:
+        executor = ThreadPoolExecutor(
+            max_workers=min(workers, len(targets)),
+            thread_name_prefix="inventory-metadata",
+        )
+        futures = [executor.submit(fetch_target, target) for target in targets]
+        completed, pending = wait(futures, timeout=foreground_budget)
+        for future in completed:
+            fetched, ready = future.result()
+            if not fetched:
+                stats["errors"] += 1
+                continue
             stats["fetched"] += 1
-            if specs.get("engine") and specs.get("transmission"):
+            if ready:
                 stats["with_metadata"] += 1
+        stats["background"] = len(pending)
+        # Do not make inventory publication wait for every dealer detail page.
+        # Running workers write per-VIN caches atomically; normal inventory reads
+        # merge those caches as soon as each vehicle completes.
+        executor.shutdown(wait=False, cancel_futures=False)
     return stats
 
 
@@ -4634,22 +4657,6 @@ def _sync_live_inventory(
         diagnostics.append(f"status_enrichment_base_records={len(existing_items)}")
     fetched_at = datetime.now(timezone.utc).isoformat()
     joined_source = ", ".join(target_sources)
-    metadata_prefetch = _prefetch_inventory_detail_metadata(merged_items) if merged_items else {
-        "requested": 0,
-        "fetched": 0,
-        "cached": 0,
-        "errors": 0,
-        "with_metadata": 0,
-    }
-    merged_items = _merge_cached_vehicle_assets(merged_items)
-    diagnostics.append(
-        "metadata_prefetch="
-        f"requested:{metadata_prefetch.get('requested', 0)},"
-        f"fetched:{metadata_prefetch.get('fetched', 0)},"
-        f"cached:{metadata_prefetch.get('cached', 0)},"
-        f"ready:{metadata_prefetch.get('with_metadata', 0)},"
-        f"errors:{metadata_prefetch.get('errors', 0)}"
-    )
     asset_prime = _prime_inventory_asset_summaries(merged_items) if merged_items else {
         "primed": 0,
         "skipped": 0,
@@ -4665,6 +4672,24 @@ def _sync_live_inventory(
         f"discovered_links:{asset_prime.get('with_discovered_link', 0)},"
         f"report:{asset_prime.get('with_report_facts', 0)},"
         f"errors:{asset_prime.get('errors', 0)}"
+    )
+    metadata_prefetch = _prefetch_inventory_detail_metadata(merged_items) if merged_items else {
+        "requested": 0,
+        "fetched": 0,
+        "cached": 0,
+        "errors": 0,
+        "with_metadata": 0,
+        "background": 0,
+    }
+    merged_items = _merge_cached_vehicle_assets(merged_items)
+    diagnostics.append(
+        "metadata_prefetch="
+        f"requested:{metadata_prefetch.get('requested', 0)},"
+        f"fetched:{metadata_prefetch.get('fetched', 0)},"
+        f"cached:{metadata_prefetch.get('cached', 0)},"
+        f"ready:{metadata_prefetch.get('with_metadata', 0)},"
+        f"background:{metadata_prefetch.get('background', 0)},"
+        f"errors:{metadata_prefetch.get('errors', 0)}"
     )
 
     if persist and merged_items:
