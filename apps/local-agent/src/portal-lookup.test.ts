@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { normalizePortalFields } from './portal-result.js';
+import { parseReconStage } from './portal-lookup.js';
 
 describe('portal VIN result normalization', () => {
   it('normalizes ReconVision fields without inventing missing values', () => {
@@ -22,5 +23,11 @@ describe('portal VIN result normalization', () => {
       location: 'Key cabinet 4',
       holder: 'Service lane',
     });
+  });
+
+  it('reads the ReconVision department from its live result table layout', () => {
+    expect(parseReconStage(
+      'invoice\tdepartment\tupdated\nTVC3701099\tArchived\t02/19/2026 10:40AM',
+    )).toBe('Archived');
   });
 });

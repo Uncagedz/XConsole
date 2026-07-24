@@ -169,7 +169,9 @@ function lines(raw: string) {
   return raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
-function reconStage(summary: string) {
+export function parseReconStage(summary: string) {
+  const tableRow = summary.match(/\t([^\t\r\n]+)\t\d{2}\/\d{2}\/\d{4}\s/);
+  if (tableRow?.[1]) return tableRow[1].trim();
   const values = lines(summary);
   const updatedIndex = values.findIndex((value) => /^\d{2}\/\d{2}\/\d{4}\s/.test(value));
   return updatedIndex > 0 ? values[updatedIndex - 1] : null;
@@ -188,8 +190,12 @@ async function lookupReconVision(page: Page, portal: PortalLookupConfig, vin: st
   await vinInput.press('Enter');
   const result = page.locator(portal.resultSelector).first();
   await result.waitFor({ state: 'visible', timeout: portal.timeoutMs });
+  await result.locator('a[href^="/work_orders/"]').first().waitFor({
+    state: 'visible',
+    timeout: portal.timeoutMs,
+  });
   const summary = (await result.innerText()).trim().slice(0, 20_000);
-  const stage = reconStage(summary);
+  const stage = parseReconStage(summary);
   return {
     summary,
     fields: {
