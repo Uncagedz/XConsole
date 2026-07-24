@@ -134,7 +134,7 @@ export const gateway = {
   async syncInventory(): Promise<InventoryResponse> {
     return request<InventoryResponse>('/api/inventory/sync-live', inventoryResponseSchema, {
       method: 'POST',
-      body: JSON.stringify({ persist: true, timeoutSeconds: 180 }),
+      body: JSON.stringify({ persist: true, timeoutSeconds: 300 }),
     });
   },
   async valuationStatus(): Promise<ValuationStatus> {

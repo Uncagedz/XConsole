@@ -20,7 +20,7 @@ const legacyPayloadSchema = z.object({
 
 const syncRequestSchema = z.object({
   sourceUrl: z.string().url().optional(),
-  timeoutSeconds: z.number().int().min(10).max(300).default(180),
+  timeoutSeconds: z.number().int().min(10).max(300).default(300),
   persist: z.boolean().default(true),
 });
 
@@ -476,7 +476,7 @@ export class InventoryService {
   startAutoSync() {
     if (!this.configured || this.autoSyncTimer) return;
     const run = () => {
-      void this.sync({ persist: true, timeoutSeconds: 180 }).catch((error: unknown) => {
+      void this.sync({ persist: true, timeoutSeconds: 300 }).catch((error: unknown) => {
         process.stderr.write(`${JSON.stringify({
           level: 'warn',
           event: 'inventory.auto_sync_failed',
