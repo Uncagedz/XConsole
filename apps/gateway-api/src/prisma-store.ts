@@ -30,6 +30,7 @@ const liveConnectors = new Set([
   'facebook-marketplace',
   'drivecentric',
   'routeone-bank-brain',
+  'window-sticker',
 ]);
 const recordingConnectors = new Set(['reconvision', 'onemicro', 'carfax']);
 
@@ -176,8 +177,14 @@ export class PrismaGatewayStore implements GatewayStoreContract {
       },
       update: {
         displayName: connector.displayName,
+        enabled: connector.enabled,
         executionLocation: connectorLocation[connector.executionLocation],
         capabilities: connector.capabilities,
+        ...(
+          connector.executionLocation !== 'local-agent' && connector.enabled
+            ? { authenticationStatus: ConnectorAuthenticationStatus.AUTHENTICATED }
+            : {}
+        ),
       },
     })));
   }

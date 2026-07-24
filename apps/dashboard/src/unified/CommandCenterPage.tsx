@@ -228,6 +228,10 @@ export function CommandCenterPage() {
   const key = useMemo(() => keyDossier(assets, vehicle), [assets, vehicle]);
   const features = useMemo(() => uniqueFactoryFeatures(assets), [assets]);
   const capabilities = useMemo(() => vehicleCapabilities(assets), [assets]);
+  const photos = useMemo(
+    () => [...new Set([...(assets?.photos ?? []), ...(vehicle?.photos ?? [])])],
+    [assets, vehicle],
+  );
   const copy = useMemo(() => sellingDescriptions(vehicle, assets), [assets, vehicle]);
   const sourceAge = ago(inventoryStatus?.source.synchronizedAt ?? inventory?.source.synchronizedAt, now);
   const liveFresh = Boolean(inventory?.source.live && !inventory.source.stale);
@@ -309,8 +313,8 @@ export function CommandCenterPage() {
             <>
               <section className="mc-vehicle-hero">
                 <div className="mc-hero-photo">
-                  {vehicle.photos[0] ? <img src={vehicle.photos[0]} alt={vehicleTitle(vehicle)} /> : <div>Photo pending</div>}
-                  <span>{vehicle.photos.length} PHOTOS</span>
+                  {photos[0] ? <img src={photos[0]} alt={vehicleTitle(vehicle)} /> : <div>Photo pending</div>}
+                  <span>{photos.length} PHOTOS</span>
                 </div>
                 <div className="mc-hero-copy">
                   <p className="mc-kicker">{vehicle.condition ?? 'inventory'} · Stock {vehicle.stockNumber ?? '—'}</p>
@@ -328,13 +332,26 @@ export function CommandCenterPage() {
                   </div>
                 </div>
               </section>
+              {photos.length > 1 && (
+                <section className="mc-photo-gallery" aria-label={`${vehicleTitle(vehicle)} complete photo gallery`}>
+                  <header><div><p className="mc-kicker">COMPLETE GALLERY</p><h2>All {photos.length} website photos</h2></div></header>
+                  <div>
+                    {photos.map((photo, index) => (
+                      <a href={photo} target="_blank" rel="noreferrer" key={photo}>
+                        <img src={photo} alt={`${vehicleTitle(vehicle)} photo ${index + 1} of ${photos.length}`} loading="lazy" />
+                        <span>{String(index + 1).padStart(2, '0')}</span>
+                      </a>
+                    ))}
+                  </div>
+                </section>
+              )}
 
               <section className="mc-readiness">
                 <article><span className={`mc-signal ${liveFresh ? 'on' : 'warn'}`} /><div><small>INVENTORY</small><strong>{liveFresh ? 'live listing' : 'cached listing'}</strong></div><em>{sourceAge}</em></article>
                 <article><span className={`mc-signal ${carfax.highlights.length ? 'on' : 'warn'}`} /><div><small>CARFAX</small><strong>{carfax.dealerVerified ? 'dealer verified' : carfax.highlights.length ? 'public fallback' : statusLabel(connector('carfax'), job('carfax'), false)}</strong></div><em>{ago(carfax.observedAt, now)}</em></article>
                 <article><span className={`mc-signal ${recon.stage ? 'on' : 'warn'}`} /><div><small>RECONVISION</small><strong>{statusLabel(connector('reconvision'), job('reconvision'), Boolean(recon.stage))}</strong></div><em>{ago(recon.observedAt, now)}</em></article>
                 <article><span className={`mc-signal ${key.location ? 'on' : 'warn'}`} /><div><small>1MICRO</small><strong>{statusLabel(connector('onemicro'), job('onemicro'), Boolean(key.location))}</strong></div><em>{ago(key.observedAt, now)}</em></article>
-                <article><span className={`mc-signal ${assets?.sticker_url || features.length ? 'on' : 'warn'}`} /><div><small>FACTORY DATA</small><strong>{features.length ? 'verified' : assetsBusy ? 'reading' : 'not found'}</strong></div><em>{assets?.loaded_at ? ago(assets.loaded_at, now) : 'automatic'}</em></article>
+                <article><span className={`mc-signal ${assets?.sticker_url || features.length || capabilities.length ? 'on' : 'warn'}`} /><div><small>FACTORY DATA</small><strong>{assets?.sticker_url ? 'sticker connected' : features.length || capabilities.length ? 'listing specs verified' : assetsBusy ? 'reading' : 'not published'}</strong></div><em>{assets?.loaded_at ? ago(assets.loaded_at, now) : 'automatic'}</em></article>
               </section>
 
               <div className="mc-grid">
@@ -421,7 +438,7 @@ export function CommandCenterPage() {
               </div>
 
               <details className="mc-systems">
-                <summary><span>System evidence</span><strong>{useful.filter((item) => item.enabled && !item.currentError).length}/{useful.length} operational</strong><em>{devices.length} Windows agent{devices.length === 1 ? '' : 's'}</em></summary>
+                <summary><span>System evidence</span><strong>{useful.filter((item) => item.enabled && item.authenticationStatus === 'authenticated' && !item.currentError).length}/{useful.length} operational</strong><em>{devices.length} Windows agent{devices.length === 1 ? '' : 's'}</em></summary>
                 <div>{useful.map((item) => <article key={item.id}><span className={`mc-signal ${item.enabled && !item.currentError ? 'on' : 'warn'}`} /><div><strong>{item.displayName}</strong><small>{item.currentError ?? (item.enabled ? `${item.authenticationStatus} · ${item.executionLocation}` : 'Not configured')}</small></div></article>)}</div>
               </details>
             </>

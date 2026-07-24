@@ -14,6 +14,7 @@ import { failureArtifactsDirectory, portalProfileDirectory } from './paths.js';
 import {
   normalizePortalFields,
   parseCarfaxReport,
+  parseOneMicroHistory,
   parseOneMicroKey,
   parseReconRepairOrder,
   parseReconStage,
@@ -142,6 +143,28 @@ async function submitReviewedLogin(
   await page.waitForTimeout(Math.min(8_000, timeoutMs));
 }
 
+async function navigateToPortalLookup(
+  page: Page,
+  connectorId: PortalConnectorId,
+  portal: PortalLookupConfig,
+) {
+  if (connectorId !== 'onemicro') {
+    await page.goto(portal.lookupUrl, { waitUntil: 'domcontentloaded', timeout: portal.timeoutMs });
+    return;
+  }
+  if (!/^https?:/i.test(page.url())) {
+    await page.goto(portal.loginUrl, { waitUntil: 'domcontentloaded', timeout: portal.timeoutMs });
+  }
+  if (new URL(page.url()).pathname === new URL(portal.lookupUrl).pathname) return;
+  const inventory = page.getByRole('link', { name: 'Inventory', exact: true });
+  await inventory.waitFor({ state: 'visible', timeout: portal.timeoutMs });
+  await inventory.click();
+  const search = page.getByRole('menuitem', { name: 'Search', exact: true });
+  await search.waitFor({ state: 'visible', timeout: portal.timeoutMs });
+  await search.click();
+  await page.waitForURL(new URL(portal.lookupUrl).toString(), { timeout: portal.timeoutMs });
+}
+
 export async function loginToPortal(
   config: AgentConfig,
   connectorId: PortalConnectorId,
@@ -178,7 +201,7 @@ export async function loginToPortal(
       );
       prompt.close();
     }
-    await page.goto(portal.lookupUrl, { waitUntil: 'domcontentloaded', timeout: portal.timeoutMs });
+    await navigateToPortalLookup(page, connectorId, portal);
     if (await hasAuthenticationChallenge(page)) {
       const artifacts = await saveFailureArtifacts(page, connectorId);
       throw new PortalLookupError(
@@ -211,17 +234,23 @@ async function lookupReconVision(page: Page, portal: PortalLookupConfig, vin: st
   await vinInput.press('Enter');
   const result = page.locator(portal.resultSelector).first();
   await result.waitFor({ state: 'visible', timeout: portal.timeoutMs });
-  await result.locator('a[href^="/work_orders/"]').first().waitFor({
-    state: 'visible',
-    timeout: portal.timeoutMs,
-  });
-  const summary = (await result.innerText()).trim().slice(0, 20_000);
+  const resultRow = result.locator('tr[data-test^="vehicle-"]').filter({ hasText: vin }).first();
+  const resultLinks = result.locator('a[href*="/work_orders/"]');
+  if (await resultLinks.count() === 0) {
+    await resultRow.waitFor({ state: 'visible', timeout: portal.timeoutMs });
+    await resultRow.click();
+    await page.waitForTimeout(1_000);
+    await page.waitForLoadState('domcontentloaded').catch(() => undefined);
+  }
+  const summary = (
+    await (await resultLinks.count() > 0 ? result : page.locator('body')).innerText()
+  ).trim().slice(0, 50_000);
   const stage = parseReconStage(summary);
-  const workOrderLinks = await result.locator('a[href^="/work_orders/"]').evaluateAll((anchors) => (
+  const workOrderLinks = await page.locator('a[href*="/work_orders/"]').evaluateAll((anchors) => (
     anchors.map((anchor) => ({
       href: (anchor as HTMLAnchorElement).href,
       label: (anchor.textContent ?? '').trim(),
-    }))
+    })).filter((item) => /\/work_orders\/\d+(?:[/?#]|$)/.test(item.href))
   ));
   const uniqueLinks = [...new Map(workOrderLinks.map((item) => [item.href, item])).values()].slice(0, 12);
   const repairOrders = [];
@@ -284,15 +313,66 @@ async function lookupOneMicro(page: Page, portal: PortalLookupConfig, vin: strin
   const summary = (await page.locator('body').innerText()).trim().slice(0, 20_000);
   const imageUrls = await page.locator('img').evaluateAll((images) => images
     .map((image) => (image as HTMLImageElement).src)
-    .filter(Boolean));
+    .filter((url) => Boolean(url) && /(?:key|tag|checkout|history|event)/i.test(url)));
+  let historyFields = parseOneMicroHistory([]);
+  const historyLink = page.locator('a[href$="/tag-history"]').first();
+  if (await historyLink.count()) {
+    const historyPage = await page.context().newPage();
+    try {
+      const historyHref = await historyLink.getAttribute('href');
+      await historyPage.goto(new URL(historyHref ?? '', page.url()).toString(), {
+        waitUntil: 'domcontentloaded',
+        timeout: portal.timeoutMs,
+      });
+      const historyRows = historyPage.locator('table tbody tr');
+      await historyRows.first().waitFor({ state: 'visible', timeout: portal.timeoutMs });
+      const rows = await historyRows.evaluateAll((elements) => elements.map((element) => {
+        const cells = Array.from(element.querySelectorAll('td')).map((cell) => (
+          (cell.textContent ?? '').replace(/\s+/g, ' ').trim() || null
+        ));
+        return {
+          createdOn: cells[0] ?? null,
+          createdBy: cells[1] ?? null,
+          closedOn: cells[2] ?? null,
+          closedBy: cells[3] ?? null,
+          event: cells[4] ?? null,
+          kiosk: cells[5] ?? null,
+          tagId: cells[6] ?? null,
+          reason: cells[7] ?? null,
+        };
+      }));
+      const latestCheckoutIndex = rows.findIndex((row) => (
+        /\b(?:remove|checkout|assign)\b/i.test(row.event ?? '')
+      ));
+      const historyImageUrls: string[] = [];
+      if (latestCheckoutIndex >= 0) {
+        const imageButton = historyRows.nth(latestCheckoutIndex).getByRole('button', { name: 'Images' });
+        if (await imageButton.count()) {
+          await imageButton.click();
+          const dialog = historyPage.locator('[role="dialog"]').first();
+          await dialog.waitFor({ state: 'visible', timeout: Math.min(5_000, portal.timeoutMs) }).catch(() => undefined);
+          historyImageUrls.push(...await dialog.locator('img').evaluateAll((images) => images
+            .map((image) => (image as HTMLImageElement).src)
+            .filter(Boolean)));
+        }
+      }
+      historyFields = parseOneMicroHistory(rows, historyImageUrls);
+    } finally {
+      await historyPage.close();
+    }
+  }
+  const detailFields = parseOneMicroKey(summary, imageUrls);
   return {
     summary,
     fields: {
-      ...parseOneMicroKey(summary, imageUrls),
+      ...detailFields,
+      ...historyFields,
+      activity: historyFields.activity.length ? historyFields.activity : detailFields.activity,
+      keyImageUrl: historyFields.keyImageUrl ?? detailFields.keyImageUrl,
       location: labeledValue(summary, 'Tag Location')
-        ?? parseOneMicroKey(summary, imageUrls).location,
+        ?? detailFields.location,
       lotLocation: labeledValue(summary, 'Lot Location')
-        ?? parseOneMicroKey(summary, imageUrls).lotLocation,
+        ?? detailFields.lotLocation,
     },
   };
 }
@@ -338,13 +418,23 @@ export async function lookupPortalVin(
   });
   const page = context.pages()[0] ?? await context.newPage();
   try {
-    await page.goto(portal.lookupUrl, { waitUntil: 'domcontentloaded', timeout: portal.timeoutMs });
+    await navigateToPortalLookup(page, connectorId, portal);
     if (await hasAuthenticationChallenge(page)) {
-      throw new PortalLookupError(
-        'reauthentication_required',
-        `${connectorId} needs manual login or MFA. Run the portal-login command on the Windows Local Agent.`,
-        true,
-      );
+      if (portal.loginUsername && portal.loginPassword) {
+        await page.goto(portal.loginUrl, { waitUntil: 'domcontentloaded', timeout: portal.timeoutMs });
+        await submitReviewedLogin(page, connectorId, {
+          username: portal.loginUsername,
+          password: portal.loginPassword,
+        }, portal.timeoutMs);
+        await navigateToPortalLookup(page, connectorId, portal);
+      }
+      if (await hasAuthenticationChallenge(page)) {
+        throw new PortalLookupError(
+          'reauthentication_required',
+          `${connectorId} needs manual login or MFA. Run the portal-login command on the Windows Local Agent.`,
+          true,
+        );
+      }
     }
 
     const reviewed = connectorId === 'reconvision'
@@ -368,12 +458,13 @@ export async function lookupPortalVin(
   } catch (error) {
     if (error instanceof PortalLookupError) throw error;
     const artifacts = await saveFailureArtifacts(page, connectorId);
-    const selectorChanged = /locator|waiting for|timeout/i.test(error instanceof Error ? error.message : '');
+    const details = error instanceof Error ? error.message : String(error);
+    const selectorChanged = /locator|waiting for|timeout/i.test(details);
     throw new PortalLookupError(
       selectorChanged ? 'selector_changed' : 'portal_unavailable',
       selectorChanged
-        ? `${connectorId} VIN lookup selectors no longer match the reviewed portal page.`
-        : `${connectorId} VIN lookup failed.`,
+        ? `${connectorId} VIN lookup selectors no longer match the reviewed portal page: ${details}`
+        : `${connectorId} VIN lookup failed: ${details}`,
       false,
       artifacts,
     );

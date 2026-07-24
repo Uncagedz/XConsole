@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   normalizePortalFields,
   parseCarfaxReport,
+  parseOneMicroHistory,
   parseOneMicroKey,
   parseReconRepairOrder,
   parseReconStage,
@@ -111,6 +112,39 @@ describe('portal VIN result normalization', () => {
       holder: 'Taylor Morgan',
       lastCheckedOutAt: '07/23/2026 2:15 PM',
       keyImageUrl: 'https://www.1micro.net/key-images/vehicle-123.jpg',
+    });
+  });
+
+  it('extracts the latest 1Micro checkout from descending key history', () => {
+    expect(parseOneMicroHistory([
+      {
+        createdOn: '2026-07-22 15:39:38 EDT',
+        createdBy: 'ALFONSO REYES',
+        closedOn: '2026-07-22 15:39:48 EDT',
+        closedBy: 'ALFONSO REYES',
+        event: 'Return',
+        kiosk: 'Taverna Collection Sales',
+        tagId: '1968',
+        reason: null,
+      },
+      {
+        createdOn: '2026-07-22 15:01:36 EDT',
+        createdBy: 'ALFONSO REYES',
+        closedOn: '2026-07-22 15:01:54 EDT',
+        closedBy: 'ALFONSO REYES',
+        event: 'Remove',
+        kiosk: 'Taverna Collection Sales',
+        tagId: '1968',
+        reason: 'Demo',
+      },
+    ], ['https://www.1micro.net/history/key-1968.jpg'])).toMatchObject({
+      lastCheckedOutBy: 'ALFONSO REYES',
+      lastCheckedOutAt: '2026-07-22 15:01:36 EDT',
+      keyImageUrl: 'https://www.1micro.net/history/key-1968.jpg',
+      activity: [
+        'Return · ALFONSO REYES · 2026-07-22 15:39:38 EDT',
+        'Remove · ALFONSO REYES · 2026-07-22 15:01:36 EDT · Demo',
+      ],
     });
   });
 });

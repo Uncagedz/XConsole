@@ -9,6 +9,8 @@ export type PortalConnectorId = z.infer<typeof portalConnectorIdSchema>;
 export const portalLookupConfigSchema = z.object({
   loginUrl: z.string().url(),
   lookupUrl: z.string().url(),
+  loginUsername: z.string().min(1).optional(),
+  loginPassword: z.string().min(1).optional(),
   vinInputSelector: z.string().min(1),
   submitSelector: z.string().min(1).optional(),
   resultSelector: z.string().min(1),
