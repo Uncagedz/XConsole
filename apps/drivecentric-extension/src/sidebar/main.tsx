@@ -60,7 +60,7 @@ type ReplyButtonVariant =
   | 'credit'
   | 'introduce';
 
-const READER_BUILD_LABEL = 'Reader build 2026.05.01.0059';
+const READER_BUILD_LABEL = 'Reader build 2026.07.23.0159';
 
 type AssistantFilters = {
   role: FilterRole;

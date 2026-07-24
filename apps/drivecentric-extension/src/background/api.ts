@@ -39,14 +39,25 @@ async function parseError(response: Response) {
     if (issues?.length) {
       return `${base}: ${issues.map((issue) => `${issue.path?.join('.') || 'field'}: ${issue.message}`).join('; ')}`;
     }
-    return base;
+    return base === 'Request failed'
+      ? `Team server request failed (${response.status}${response.statusText ? ` ${response.statusText}` : ''}).`
+      : base;
   } catch {
-    return 'Request failed';
+    return `Team server request failed (${response.status}${response.statusText ? ` ${response.statusText}` : ''}).`;
+  }
+}
+
+async function request(path: string, init: RequestInit) {
+  const baseUrl = await apiBaseUrl();
+  try {
+    return await fetch(`${baseUrl}${path}`, init);
+  } catch {
+    throw new Error(`Cannot reach the XConsole AI service at ${baseUrl}. Check the connection and try again.`);
   }
 }
 
 async function refreshAuth(auth: AuthResponse) {
-  const response = await fetch(`${await apiBaseUrl()}/auth/refresh`, {
+  const response = await request('/auth/refresh', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ refreshToken: auth.refreshToken }),
@@ -68,7 +79,7 @@ async function apiFetch<T>(path: string, init: RequestInit, retry = true): Promi
   headers.set('content-type', 'application/json');
   if (auth?.accessToken) headers.set('authorization', `Bearer ${auth.accessToken}`);
 
-  const response = await fetch(`${await apiBaseUrl()}${path}`, {
+  const response = await request(path, {
     ...init,
     headers,
   });
@@ -93,7 +104,7 @@ async function freshUser(auth: AuthResponse) {
 }
 
 export async function login(userId: string, password: string) {
-  const response = await fetch(`${await apiBaseUrl()}/auth/login`, {
+  const response = await request('/auth/login', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ userId, password }),
@@ -108,7 +119,7 @@ export async function login(userId: string, password: string) {
 export async function logout() {
   const auth = await getAuth();
   if (auth) {
-    await fetch(`${await apiBaseUrl()}/auth/logout`, {
+    await request('/auth/logout', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ refreshToken: auth.refreshToken }),

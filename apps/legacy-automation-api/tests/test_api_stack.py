@@ -551,6 +551,29 @@ def test_extract_detail_facts_from_markdown_proxy_parses_vehicle_fields():
     ]
 
 
+def test_extract_standard_specs_from_html_summarizes_capability():
+    html_text = """
+    <ul>
+      <li class="spec-item"><span class="spec-item-description">3rd row seats: </span><span class="spec-item-detail">split-bench</span></li>
+      <li class="spec-item"><span class="spec-item-description">Curb weight: </span><span class="spec-item-detail">2,480kg (5,467lbs)</span></li>
+      <li class="spec-item"><span class="spec-item-description">Maximum towing capacity: </span><span class="spec-item-detail">7,700lbs</span></li>
+      <li class="spec-item"><span class="spec-item-description">Horsepower: </span><span class="spec-item-detail">362hp @ 5,500RPM</span></li>
+      <li class="spec-item"><span class="spec-item-description">Torque: </span><span class="spec-item-detail">369 lb.-ft. @ 1,600RPM</span></li>
+      <li class="spec-item"><span class="spec-item-description">GVWR: </span><span class="spec-item-detail">3,300kg (7,275lbs)</span></li>
+      <li class="spec-item"><span class="spec-item-description">Interior maximum rear cargo volume: </span><span class="spec-item-detail">2,398 L (85 cu.ft.)</span></li>
+    </ul>
+    """
+    assert api._extract_standard_specs_from_html(html_text) == {
+        "third_row_seats": "split-bench",
+        "curb_weight": "2,480kg (5,467lbs)",
+        "max_towing_capacity": "7,700lbs",
+        "horsepower": "362hp @ 5,500RPM",
+        "torque": "369 lb.-ft. @ 1,600RPM",
+        "gvwr": "3,300kg (7,275lbs)",
+        "max_cargo_volume": "2,398 L (85 cu.ft.)",
+    }
+
+
 def test_merge_cached_vehicle_assets_prefers_cached_photos(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "VEHICLE_ASSETS_CACHE_DIR", tmp_path / "vehicle_assets")
     cache_path = api._vehicle_assets_cache_path("2C4RC1BG9TR191376")

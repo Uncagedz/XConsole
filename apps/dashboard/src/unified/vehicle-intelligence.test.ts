@@ -6,6 +6,7 @@ import {
   reconDossier,
   sellingDescriptions,
   uniqueFactoryFeatures,
+  vehicleCapabilities,
 } from './vehicle-intelligence';
 
 const vehicle = {
@@ -27,6 +28,13 @@ const vehicle = {
 const assets = {
   vin: vehicle.vin,
   sticker_highlights: ['Engine: 3.0L', 'Driver Assistance Package', 'Panoramic moonroof'],
+  quick_specs: {
+    third_row_seats: 'split-bench',
+    curb_weight: '2,480kg (5,467lbs)',
+    max_towing_capacity: '7,700lbs',
+    horsepower: '362hp @ 5,500RPM',
+    torque: '369 lb.-ft. @ 1,600RPM',
+  },
   marketing_summary: ['Burmester premium audio'],
   source_intelligence: {
     carfax: {
@@ -73,5 +81,16 @@ describe('VIN evidence model', () => {
     expect(copy.summary).toContain('Driver Assistance Package');
     expect(copy.detailed).toContain('16 documented service records');
     expect(copy.detailed).toContain('1 accident event');
+  });
+
+  it('summarizes capability facts separately from special equipment', () => {
+    expect(vehicleCapabilities(assets)).toEqual([
+      { key: 'third_row_seats', label: 'Third row', value: 'split-bench' },
+      { key: 'max_towing_capacity', label: 'Max towing', value: '7,700lbs' },
+      { key: 'curb_weight', label: 'Curb weight', value: '2,480kg (5,467lbs)' },
+      { key: 'horsepower', label: 'Horsepower', value: '362hp @ 5,500RPM' },
+      { key: 'torque', label: 'Torque', value: '369 lb.-ft. @ 1,600RPM' },
+    ]);
+    expect(sellingDescriptions(vehicle, assets).summary).toContain('Capability:');
   });
 });
