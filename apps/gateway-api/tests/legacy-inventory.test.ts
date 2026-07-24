@@ -65,12 +65,16 @@ describe('legacy inventory bridge', () => {
       }],
       active_count: 1,
       in_transit_count: 0,
-      source_status: { updated_at: '2026-07-23T12:00:00Z' },
+      source_status: {
+        updated_at: '2026-04-29T12:00:00Z',
+        fetched_at: '2026-07-23T12:00:00Z',
+      },
     }), { status: 200 })) as unknown as typeof fetch;
     const inventory = await new InventoryService(configuredEnv, new GatewayStore(), fetchMock).list();
 
     expect(inventory.source.mode).toBe('legacy-live');
     expect(inventory.source.live).toBe(true);
+    expect(inventory.source.synchronizedAt).toBe('2026-07-23T12:00:00.000Z');
     expect(inventory.items).toHaveLength(1);
     expect(inventory.items[0]?.title).toBe('2025 Honda Accord Touring');
     expect(inventory.items[0]?.sourceStatuses.map((item) => item.connectorId)).toEqual([
