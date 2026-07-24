@@ -101,7 +101,9 @@ export function CommandCenterPage() {
       setConnectors(nextConnectors);
       setDevices(nextDevices);
       setValuationCount(valuation?.count ?? null);
-      if (nextInventory.items[0]) setSelectedVin(nextInventory.items[0].vin);
+      const initialVehicle = nextInventory.items.find((item) => item.retailPrice !== null)
+        ?? nextInventory.items[0];
+      if (initialVehicle) setSelectedVin(initialVehicle.vin);
     }).catch((value) => setError(value instanceof Error ? value.message : String(value)));
     const inventoryTimer = window.setInterval(() => void loadInventory(), 10_000);
     const clockTimer = window.setInterval(() => {
@@ -121,13 +123,13 @@ export function CommandCenterPage() {
     setJobs([]);
     setAssetsBusy(true);
     let active = true;
-    void Promise.all([
-      gateway.vehicle(selectedVin),
-      gateway.vehicleAssets(selectedVin, true),
-    ]).then(([nextVehicle, nextAssets]) => {
-      if (!active) return;
-      setVehicle(nextVehicle);
-      setAssets(nextAssets);
+    void gateway.vehicle(selectedVin).then((nextVehicle) => {
+      if (active) setVehicle(nextVehicle);
+    }).catch((value) => {
+      if (active) setError(value instanceof Error ? value.message : String(value));
+    });
+    void gateway.vehicleAssets(selectedVin, true).then((nextAssets) => {
+      if (active) setAssets(nextAssets);
     }).catch((value) => {
       if (active) setError(value instanceof Error ? value.message : String(value));
     }).finally(() => {
