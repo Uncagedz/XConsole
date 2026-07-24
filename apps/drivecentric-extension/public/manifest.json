@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AI Sales Assistant for Dealerships",
   "short_name": "Sales AI",
-  "version": "0.1.58",
+  "version": "0.1.59",
 
   "description": "Human AI assistant for dealership teams. Reads lead context, summarizes needs, and drafts natural sales replies.",
 
@@ -26,7 +26,6 @@
 
   "action": {
     "default_title": "AI Sales Assistant",
-    "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
@@ -70,7 +69,6 @@
     {
       "resources": [
         "mic.html",
-        "popup.html",
         "sidebar.html",
         "assets/mic-window.js",
         "assets/content.js",

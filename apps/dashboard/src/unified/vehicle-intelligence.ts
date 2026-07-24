@@ -131,7 +131,7 @@ export function keyDossier(assets: VehicleAssets | null, vehicle: Vehicle | null
 }
 
 const highValueFeature = /(?:package|premium|luxury|advanced|driver|assist|adaptive|camera|surround|head-up|navigation|wireless|carplay|android auto|harman|alpine|bose|burmester|sunroof|moonroof|panoramic|leather|heated|ventilated|massage|third row|towing|trailer|off-road|four-wheel|all-wheel|locking|limited slip|performance|sport|night vision|air suspension|hands-free|remote start|blind spot|collision|lane|unique|special|edition)/i;
-const genericSpec = /^(?:engine|transmission|drivetrain|drive|fuel|body|exterior|interior|mpg|epa)\s*[:\-]/i;
+const genericSpec = /^(?:engine|transmission|drivetrain|drive|fuel|body|exterior|interior|mpg|epa|third row|seats|curb weight|max towing|horsepower|torque|payload|gvwr|max cargo|cargo)\s*[:\-]/i;
 
 export function uniqueFactoryFeatures(assets: VehicleAssets | null) {
   const candidates = (assets?.sticker_highlights ?? [])
@@ -142,6 +142,34 @@ export function uniqueFactoryFeatures(assets: VehicleAssets | null) {
     ...candidates.filter((value) => !highValueFeature.test(value) && !genericSpec.test(value)),
   ];
   return [...new Set(prioritized)].slice(0, 12);
+}
+
+export type CapabilityFact = {
+  key: string;
+  label: string;
+  value: string;
+};
+
+export function vehicleCapabilities(assets: VehicleAssets | null): CapabilityFact[] {
+  const specs = record(assets?.quick_specs);
+  const definitions: Array<[string, string]> = [
+    ['third_row_seats', 'Third row'],
+    ['seating_capacity', 'Seats'],
+    ['max_towing_capacity', 'Max towing'],
+    ['curb_weight', 'Curb weight'],
+    ['horsepower', 'Horsepower'],
+    ['torque', 'Torque'],
+    ['payload_capacity', 'Payload'],
+    ['gvwr', 'GVWR'],
+    ['max_cargo_volume', 'Max cargo'],
+    ['cargo_volume', 'Cargo behind seats'],
+    ['ground_clearance', 'Ground clearance'],
+    ['wheelbase', 'Wheelbase'],
+  ];
+  return definitions
+    .map(([key, label]) => ({ key, label, value: text(specs[key]) }))
+    .filter((item): item is CapabilityFact => Boolean(item.value))
+    .slice(0, 10);
 }
 
 function sentenceList(values: string[]) {
@@ -159,6 +187,8 @@ export function sellingDescriptions(
   const carfax = carfaxDossier(assets);
   const recon = reconDossier(assets, vehicle);
   const features = uniqueFactoryFeatures(assets);
+  const capabilities = vehicleCapabilities(assets);
+  const capabilityPhrases = capabilities.map((item) => `${item.label.toLowerCase()} ${item.value}`);
   const facts = [
     vehicle.mileage != null ? `${vehicle.mileage.toLocaleString()} miles` : null,
     vehicle.drivetrain,
@@ -174,12 +204,14 @@ export function sellingDescriptions(
   ].filter((value): value is string => Boolean(value));
   const summary = [
     `${title}${facts.length ? ` with ${sentenceList(facts.slice(0, 3))}` : ''}.`,
+    capabilityPhrases.length ? `Capability: ${sentenceList(capabilityPhrases.slice(0, 3))}.` : '',
     features.length ? `Standout equipment includes ${sentenceList(features.slice(0, 3))}.` : '',
     confidence.length ? `${sentenceList(confidence.slice(0, 2))}.` : '',
   ].filter(Boolean).join(' ');
   const detailed = [
     `Meet this ${title}${vehicle.exteriorColor ? ` finished in ${vehicle.exteriorColor}` : ''}.`,
     facts.length ? `Verified vehicle details include ${sentenceList(facts)}.` : '',
+    capabilityPhrases.length ? `Verified capability and utility: ${sentenceList(capabilityPhrases.slice(0, 6))}.` : '',
     features.length ? `What sets it apart: ${sentenceList(features.slice(0, 8))}.` : '',
     confidence.length ? `Ownership and preparation highlights: ${sentenceList(confidence.slice(0, 6))}.` : '',
     carfax.accidents != null

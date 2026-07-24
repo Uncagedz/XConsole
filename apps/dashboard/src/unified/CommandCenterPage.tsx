@@ -16,8 +16,10 @@ import {
   reconDossier,
   sellingDescriptions,
   uniqueFactoryFeatures,
+  vehicleCapabilities,
 } from './vehicle-intelligence';
 import './command-center.css';
+import './capability.css';
 
 const terminalJobStates = ['succeeded', 'failed', 'cancelled'];
 const usefulConnectors = new Set([
@@ -218,6 +220,7 @@ export function CommandCenterPage() {
   const recon = useMemo(() => reconDossier(assets, vehicle), [assets, vehicle]);
   const key = useMemo(() => keyDossier(assets, vehicle), [assets, vehicle]);
   const features = useMemo(() => uniqueFactoryFeatures(assets), [assets]);
+  const capabilities = useMemo(() => vehicleCapabilities(assets), [assets]);
   const copy = useMemo(() => sellingDescriptions(vehicle, assets), [assets, vehicle]);
   const sourceAge = ago(inventoryStatus?.source.synchronizedAt ?? inventory?.source.synchronizedAt, now);
   const liveFresh = Boolean(inventory?.source.live && !inventory.source.stale);
@@ -367,7 +370,9 @@ export function CommandCenterPage() {
                 </section>
 
                 <section className="mc-panel mc-features">
-                  <header><div><p className="mc-kicker">WHY THIS ONE</p><h2>Standout factory equipment</h2></div>{assets?.sticker_url && <a className="mc-tag" href={assets.sticker_url} target="_blank" rel="noreferrer">STICKER ↗</a>}</header>
+                  <header><div><p className="mc-kicker">UTILITY + DIFFERENTIATORS</p><h2>Capability and standout equipment</h2></div>{assets?.sticker_url && <a className="mc-tag" href={assets.sticker_url} target="_blank" rel="noreferrer">STICKER ↗</a>}</header>
+                  {capabilities.length > 0 && <div className="mc-capability-grid">{capabilities.map((fact) => <div key={fact.key}><span>{fact.label}</span><strong>{fact.value}</strong></div>)}</div>}
+                  {capabilities.length > 0 && features.length > 0 && <h3 className="mc-list-heading">What makes it special</h3>}
                   {features.length ? <ol>{features.map((feature, index) => <li key={feature}><b>{String(index + 1).padStart(2, '0')}</b><span>{feature}</span></li>)}</ol> : <p className="mc-empty">{assetsBusy ? 'Reading equipment and packages…' : 'No factory sticker or differentiated option data was found.'}</p>}
                 </section>
 

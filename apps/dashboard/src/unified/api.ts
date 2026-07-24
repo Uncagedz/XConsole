@@ -39,6 +39,7 @@ const vehicleAssetsSchema = z.object({
   loaded_at: z.string().nullable().optional(),
   sticker_url: z.string().url().nullable().optional(),
   sticker_highlights: z.array(z.string()).default([]),
+  quick_specs: z.record(z.unknown()).default({}),
   carfax_url: z.string().url().nullable().optional(),
   carfax_summary: z.record(z.unknown()).nullable().optional(),
   buyer_profile: z.record(z.unknown()).nullable().optional(),

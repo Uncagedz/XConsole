@@ -2,7 +2,8 @@ import type { AuthResponse } from '@drivecentric-ai/shared';
 
 const AUTH_KEY = 'drivecentric_ai_extension_auth';
 const API_BASE_URL_KEY = 'drivecentric_ai_api_base_url';
-const RAW_DEFAULT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
+const PRODUCTION_API_BASE_URL = 'https://xconsole-ai-api-production.up.railway.app';
+const RAW_DEFAULT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || PRODUCTION_API_BASE_URL;
 const DEFAULT_API_BASE_URL: string = normalizeApiBaseUrlValue(RAW_DEFAULT_API_BASE_URL, '');
 
 export type StoredAuth = AuthResponse;
@@ -26,7 +27,10 @@ export async function getApiBaseUrl() {
   if (typeof value !== 'string' || !value.trim()) return DEFAULT_API_BASE_URL;
 
   const normalized = normalizeApiBaseUrlValue(value);
-  if (isLocalhostUrl(normalized) && DEFAULT_API_BASE_URL && !isLocalhostUrl(DEFAULT_API_BASE_URL)) {
+  if (
+    (isLocalhostUrl(normalized) && DEFAULT_API_BASE_URL && !isLocalhostUrl(DEFAULT_API_BASE_URL))
+    || isRetiredDashboardOrigin(normalized)
+  ) {
     await chrome.storage.local.remove(API_BASE_URL_KEY);
     return DEFAULT_API_BASE_URL;
   }
@@ -69,8 +73,20 @@ function isLocalhostUrl(url: string) {
   }
 }
 
+function isRetiredDashboardOrigin(url: string) {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return hostname === 'aniextension.up.railway.app' || hostname === 'xconsole.up.railway.app';
+  } catch {
+    return false;
+  }
+}
+
 export async function setApiBaseUrl(url: string) {
   const normalized = normalizeApiBaseUrl(url);
+  if (isRetiredDashboardOrigin(normalized)) {
+    throw new Error('That address is the XConsole dashboard, not the AI service. Use the production team server.');
+  }
   if (normalized) {
     await chrome.storage.local.set({ [API_BASE_URL_KEY]: normalized });
   } else {

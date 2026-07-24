@@ -5062,7 +5062,77 @@ def _extract_quick_specs_from_html(html_text: str) -> dict[str, Any]:
         for key, value in spec.items():
             if value not in (None, "", [], {}):
                 merged[key] = value
+    merged.update(_extract_standard_specs_from_html(html_text))
     return merged
+
+
+def _extract_standard_specs_from_html(html_text: str) -> dict[str, Any]:
+    """Extract buyer-facing capability facts from Dealer.com specification rows."""
+    if not html_text:
+        return {}
+
+    rows: list[tuple[str, str]] = []
+    if BeautifulSoup is not None:
+        try:
+            soup = BeautifulSoup(html_text, "html.parser")
+            for item in soup.select("li.spec-item"):
+                label_node = item.select_one(".spec-item-description")
+                detail_node = item.select_one(".spec-item-detail")
+                if label_node is None or detail_node is None:
+                    continue
+                label = re.sub(r"\s+", " ", label_node.get_text(" ", strip=True)).strip(" :")
+                value = re.sub(r"\s+", " ", detail_node.get_text(" ", strip=True)).strip()
+                if label and value:
+                    rows.append((label, value))
+        except Exception:
+            rows = []
+
+    if not rows:
+        for match in re.finditer(
+            r'<li\b[^>]*class=["\'][^"\']*\bspec-item\b[^"\']*["\'][^>]*>.*?'
+            r'class=["\'][^"\']*\bspec-item-description\b[^"\']*["\'][^>]*>(.*?)</[^>]+>.*?'
+            r'class=["\'][^"\']*\bspec-item-detail\b[^"\']*["\'][^>]*>(.*?)</[^>]+>',
+            html_text,
+            flags=re.IGNORECASE | re.DOTALL,
+        ):
+            label = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html.unescape(match.group(1)))).strip(" :")
+            value = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html.unescape(match.group(2)))).strip()
+            if label and value:
+                rows.append((label, value))
+
+    aliases = {
+        "3rd row seats": "third_row_seats",
+        "third row seats": "third_row_seats",
+        "seating capacity": "seating_capacity",
+        "passenger capacity": "seating_capacity",
+        "curb weight": "curb_weight",
+        "maximum towing capacity": "max_towing_capacity",
+        "max towing capacity": "max_towing_capacity",
+        "towing capacity": "max_towing_capacity",
+        "maximum payload capacity": "payload_capacity",
+        "max payload capacity": "payload_capacity",
+        "payload capacity": "payload_capacity",
+        "horsepower": "horsepower",
+        "engine horsepower": "horsepower",
+        "torque": "torque",
+        "engine torque": "torque",
+        "gvwr": "gvwr",
+        "interior maximum rear cargo volume": "max_cargo_volume",
+        "maximum cargo volume": "max_cargo_volume",
+        "interior rear cargo volume": "cargo_volume",
+        "cargo volume": "cargo_volume",
+        "wheelbase": "wheelbase",
+        "ground clearance (max)": "ground_clearance",
+    }
+    facts: dict[str, Any] = {}
+    for raw_label, value in rows:
+        label = re.sub(r"\s+", " ", raw_label).strip(" :").lower()
+        key = aliases.get(label)
+        if not key:
+            continue
+        if key not in facts or label.startswith("engine "):
+            facts[key] = value
+    return facts
 
 
 def _quick_spec_highlights(quick_specs: dict[str, Any]) -> list[str]:
@@ -5085,6 +5155,22 @@ def _quick_spec_highlights(quick_specs: dict[str, Any]) -> list[str]:
         highlights.append(f"EPA: {mpg_city} city / {mpg_hwy} hwy")
     elif mpg_combined not in (None, ""):
         highlights.append(f"EPA combined: {mpg_combined}")
+    capability_labels = {
+        "third_row_seats": "Third row",
+        "seating_capacity": "Seats",
+        "max_towing_capacity": "Max towing",
+        "curb_weight": "Curb weight",
+        "horsepower": "Horsepower",
+        "torque": "Torque",
+        "payload_capacity": "Payload",
+        "gvwr": "GVWR",
+        "max_cargo_volume": "Max cargo",
+        "cargo_volume": "Cargo",
+    }
+    for key, label in capability_labels.items():
+        value = quick_specs.get(key)
+        if value not in (None, ""):
+            highlights.append(f"{label}: {value}")
     return _dedupe_strings(highlights)
 
 
@@ -6860,6 +6946,7 @@ def _fetch_vehicle_asset_bundle_from_browser(
         links: dict[str, str | None] = {"sticker_url": None, "carfax_url": None}
         photos: list[str] = []
         carfax_facts: dict[str, Any] = {}
+        quick_specs: dict[str, Any] = {}
         resource_text = ""
         while time.time() < deadline:
             time.sleep(1.5)
@@ -6876,6 +6963,7 @@ def _fetch_vehicle_asset_bundle_from_browser(
             links = _extract_asset_links_from_html(scan_blob, base_url=detail_url)
             photos = _extract_vehicle_photo_urls_from_html(scan_blob, base_url=detail_url)
             carfax_facts = _extract_carfax_facts_from_html(scan_blob)
+            quick_specs = _extract_quick_specs_from_html(html_text)
             if links.get("carfax_url") or links.get("sticker_url") or len(photos) >= 3:
                 break
         return {
@@ -6889,6 +6977,7 @@ def _fetch_vehicle_asset_bundle_from_browser(
             "sticker_url": links.get("sticker_url"),
             "carfax_url": links.get("carfax_url"),
             "carfax_facts": carfax_facts,
+            "quick_specs": quick_specs,
         }
     except Exception as exc:
         return {
@@ -7042,6 +7131,10 @@ def _load_vehicle_assets(vin: str, *, refresh: bool = False) -> dict[str, Any]:
                 merged_badge_facts = dict(payload.get("carfax_facts") if isinstance(payload.get("carfax_facts"), dict) else {})
                 merged_badge_facts.update(browser_bundle.get("carfax_facts") or {})
                 payload["carfax_facts"] = merged_badge_facts
+            if browser_bundle.get("quick_specs"):
+                merged_specs = dict(payload.get("quick_specs") if isinstance(payload.get("quick_specs"), dict) else {})
+                merged_specs.update(browser_bundle.get("quick_specs") or {})
+                payload["quick_specs"] = merged_specs
             payload["detail_fetch_url"] = browser_bundle.get("current_url")
             payload["detail_page_title"] = browser_bundle.get("page_title")
         else:

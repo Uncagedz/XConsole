@@ -1,0 +1,44 @@
+name: Package DriveCentric extension
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - apps/drivecentric-extension/**
+      - packages/shared/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/extension-package.yml
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @xconsole/drivecentric-extension test
+      - run: pnpm --filter @xconsole/drivecentric-extension build
+      - run: node scripts/verify-extension-package.mjs apps/drivecentric-extension/dist
+      - name: Create installable archive
+        run: |
+          cd apps/drivecentric-extension/dist
+          zip -r ../xconsole-drivecentric-extension.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xconsole-drivecentric-extension
+          path: apps/drivecentric-extension/xconsole-drivecentric-extension.zip
+          if-no-files-found: error
+          retention-days: 30

@@ -47,11 +47,13 @@ const vehicleAssetsSchema = z.object({
   sticker_url: z.string().url().nullable().optional(),
   sticker_view_url: z.string().nullable().optional(),
   sticker_highlights: z.array(z.string()).default([]),
+  quick_specs: z.record(z.unknown()).default({}),
   carfax_url: z.string().url().nullable().optional(),
   carfax_view_url: z.string().nullable().optional(),
   carfax_summary: z.record(z.unknown()).nullable().optional(),
   buyer_profile: z.record(z.unknown()).nullable().optional(),
   marketing_summary: z.array(z.string()).default([]),
+  source_intelligence: z.record(z.record(z.unknown())).default({}),
 }).passthrough();
 
 export type InventorySyncRequest = z.input<typeof syncRequestSchema>;
