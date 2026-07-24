@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePortalFields } from './portal-result.js';
-import { parseReconStage } from './portal-lookup.js';
+import { normalizePortalFields, parseReconStage } from './portal-result.js';
 
 describe('portal VIN result normalization', () => {
   it('normalizes ReconVision fields without inventing missing values', () => {

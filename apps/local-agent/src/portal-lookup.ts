@@ -11,7 +11,7 @@ import type {
   PortalLookupConfig,
 } from './config.js';
 import { failureArtifactsDirectory, portalProfileDirectory } from './paths.js';
-import { normalizePortalFields } from './portal-result.js';
+import { normalizePortalFields, parseReconStage } from './portal-result.js';
 import { sanitizeCapturedHtml } from './sanitize.js';
 
 type FailureArtifacts = {
@@ -167,14 +167,6 @@ export async function loginToPortal(
 
 function lines(raw: string) {
   return raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-}
-
-export function parseReconStage(summary: string) {
-  const tableRow = summary.match(/\t([^\t\r\n]+)\t\d{2}\/\d{2}\/\d{4}\s/);
-  if (tableRow?.[1]) return tableRow[1].trim();
-  const values = lines(summary);
-  const updatedIndex = values.findIndex((value) => /^\d{2}\/\d{2}\/\d{4}\s/.test(value));
-  return updatedIndex > 0 ? values[updatedIndex - 1] : null;
 }
 
 function labeledValue(summary: string, label: string) {
