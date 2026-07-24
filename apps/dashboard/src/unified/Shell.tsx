@@ -1,18 +1,26 @@
 import { type FormEvent, useEffect, useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { Outlet } from 'react-router-dom';
 import { GatewayError, gateway } from './api';
 import './unified.css';
 import './shell.css';
 
-const navigation = [
-  ['overview', 'Overview'],
-  ['inventory', 'Inventory'],
-  ['vehicle', 'Vehicle'],
-  ['intelligence', 'VIN intelligence'],
-  ['bank-brain', 'JD Power / LTV'],
-  ['connectors', 'Connectors'],
-  ['messenger', 'Messenger'],
-] as const;
+export type ShellContext = {
+  logout: () => Promise<void>;
+};
+
+function isClientError(error: unknown) {
+  return error instanceof GatewayError && error.status >= 400 && error.status < 500;
+}
+
+function signInMessage(error: unknown) {
+  if (error instanceof GatewayError && error.status === 400) {
+    return 'Enter the complete dashboard access code. The code is at least 24 characters.';
+  }
+  if (error instanceof GatewayError && error.status === 401) {
+    return 'That access code is not valid. Check the full code and try again.';
+  }
+  return error instanceof Error ? error.message : 'Sign-in failed.';
+}
 
 export function UnifiedShell() {
   const [sessionState, setSessionState] = useState<'checking' | 'authenticated' | 'unauthenticated' | 'offline'>('checking');
@@ -28,8 +36,8 @@ export function UnifiedShell() {
       })
       .catch((error: unknown) => {
         if (!active) return;
-        setSessionState(error instanceof GatewayError && error.status === 401 ? 'unauthenticated' : 'offline');
-        setMessage(error instanceof Error ? error.message : 'The XConsole gateway is unavailable.');
+        setSessionState(isClientError(error) ? 'unauthenticated' : 'offline');
+        setMessage(isClientError(error) ? '' : signInMessage(error));
       });
     return () => {
       active = false;
@@ -45,8 +53,8 @@ export function UnifiedShell() {
       setToken('');
       setSessionState('authenticated');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Sign-in failed.');
-      setSessionState(error instanceof GatewayError && error.status === 401 ? 'unauthenticated' : 'offline');
+      setMessage(signInMessage(error));
+      setSessionState(isClientError(error) ? 'unauthenticated' : 'offline');
     } finally {
       setSubmitting(false);
     }
@@ -64,22 +72,23 @@ export function UnifiedShell() {
     return (
       <main className="ux-auth">
         <section className="ux-auth-card" aria-live="polite">
-          <div className="ux-brand ux-auth-brand">
+          <div className="ux-auth-brand">
             <span className="ux-brand-mark">X</span>
-            <div><strong>XConsole</strong><small>Secure dealership workspace</small></div>
+            <div><strong>XConsole</strong><small>Taverna mission control</small></div>
           </div>
           {sessionState === 'checking' ? (
             <p className="ux-auth-status">Checking your secure session…</p>
           ) : (
             <>
-              <h1>{sessionState === 'offline' ? 'Gateway unavailable' : 'Sign in'}</h1>
+              <p className="ux-eyebrow">{sessionState === 'offline' ? 'Connection problem' : 'Secure access'}</p>
+              <h1>{sessionState === 'offline' ? 'Service temporarily unavailable' : 'Open mission control'}</h1>
               <p>
                 {sessionState === 'offline'
-                  ? 'Confirm the gateway is running, then retry. You can also enter your dashboard token below.'
-                  : 'Enter the dashboard access token configured on the XConsole gateway.'}
+                  ? 'XConsole could not reach its server. Your data is not lost; retry when the connection is restored.'
+                  : 'Enter the complete dashboard access code. It is never saved in the page or placed in a URL.'}
               </p>
               <form onSubmit={login}>
-                <label htmlFor="dashboard-token">Dashboard token</label>
+                <label htmlFor="dashboard-token">Dashboard access code</label>
                 <input
                   id="dashboard-token"
                   type="password"
@@ -91,7 +100,7 @@ export function UnifiedShell() {
                 />
                 {message && <div className="ux-auth-error" role="alert">{message}</div>}
                 <button disabled={submitting} type="submit">
-                  {submitting ? 'Signing in…' : 'Open XConsole'}
+                  {submitting ? 'Opening…' : 'Open XConsole'}
                 </button>
               </form>
               {sessionState === 'offline' && (
@@ -106,27 +115,5 @@ export function UnifiedShell() {
     );
   }
 
-  return (
-    <div className="ux-shell">
-      <aside className="ux-sidebar">
-        <div className="ux-brand">
-          <span className="ux-brand-mark">X</span>
-          <div><strong>XConsole</strong><small>Personal dealership OS</small></div>
-        </div>
-        <nav>
-          {navigation.map(([section, label]) => (
-            <a key={section} href={`/dashboard#${section}`}>
-              {label}
-            </a>
-          ))}
-        </nav>
-        <div className="ux-sidebar-footer">
-          <NavLink to="/settings" className="ux-legacy-link">Settings & devices</NavLink>
-          <NavLink to="/legacy" className="ux-legacy-link">Legacy command center</NavLink>
-          <button type="button" onClick={logout}>Sign out</button>
-        </div>
-      </aside>
-      <main className="ux-main"><Outlet /></main>
-    </div>
-  );
+  return <Outlet context={{ logout } satisfies ShellContext} />;
 }
