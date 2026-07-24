@@ -36,46 +36,88 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+function booleanFromEnv(value: string | undefined, fallback: boolean) {
+  if (value === undefined) return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+
+function reasoningEffortFromEnv(value: string | undefined) {
+  const effort = value?.trim().toLowerCase();
+  return effort === 'low' || effort === 'medium' || effort === 'high' ? effort : 'high';
+}
+
+function modelLikelySupportsReasoning(model: string) {
+  return /^(gpt-5|o[1-9])(?:[.-]|$)/i.test(model.trim());
+}
+
+function canRetryWithoutParameter(status: number, body: string, parameter: 'temperature' | 'reasoning') {
+  if (status !== 400 || !new RegExp(`\\b${parameter}\\b`, 'i').test(body)) return false;
+  return /(unsupported|not supported|unknown parameter|invalid|only supports|must be)/i.test(body);
+}
+
+type ResponsesRequest = {
+  model: string;
+  max_output_tokens: number;
+  input: Array<{ role: 'system' | 'user'; content: string }>;
+  text: { format: { type: 'json_object' } };
+  temperature?: number;
+  reasoning?: { effort: 'low' | 'medium' | 'high' };
+};
+
 export class OpenAiProvider implements LlmProvider {
   async generate(input: LlmGenerateInput): Promise<LlmGenerateResult> {
     if (!env.OPENAI_API_KEY) {
       throw forbidden('OpenAI API key is not configured');
     }
 
-    const rawTemperature = numberFromEnv(process.env.OPENAI_TEMPERATURE, 1.2);
-    const temperature = clamp(rawTemperature, 0, 2);
-
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${env.OPENAI_API_KEY}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: env.OPENAI_MODEL,
-        max_output_tokens: env.OPENAI_MAX_OUTPUT_TOKENS,
-        temperature,
-        input: [
-          {
-            role: 'system',
-            content: input.system,
-          },
-          {
-            role: 'user',
-            content: input.user,
-          },
-        ],
-        text: {
-          format: {
-            type: 'json_object',
-          },
+    // The creative settings are deliberately best-effort. Reasoning models and
+    // non-reasoning models do not all accept the same Responses API parameters.
+    // A capability mismatch should never prevent a salesperson from receiving a reply.
+    const rawTemperature = numberFromEnv(process.env.AI_TEMPERATURE ?? process.env.OPENAI_TEMPERATURE, 1.5);
+    const responseVariety = booleanFromEnv(process.env.AI_RESPONSE_VARIETY, true);
+    const request: ResponsesRequest = {
+      model: env.OPENAI_MODEL,
+      max_output_tokens: env.OPENAI_MAX_OUTPUT_TOKENS,
+      input: [
+        { role: 'system', content: input.system },
+        { role: 'user', content: input.user },
+      ],
+      text: {
+        format: {
+          type: 'json_object',
         },
-      }),
-    });
+      },
+    };
 
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`OpenAI request failed: ${response.status} ${body}`);
+    if (responseVariety) request.temperature = clamp(rawTemperature, 1, 2);
+    if (modelLikelySupportsReasoning(env.OPENAI_MODEL)) {
+      request.reasoning = { effort: reasoningEffortFromEnv(process.env.AI_REASONING_EFFORT) };
+    }
+
+    let response: Response | undefined;
+    let failureBody = '';
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${env.OPENAI_API_KEY}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      });
+
+      if (response.ok) break;
+      failureBody = await response.text();
+
+      const removeTemperature = request.temperature !== undefined && canRetryWithoutParameter(response.status, failureBody, 'temperature');
+      const removeReasoning = request.reasoning !== undefined && canRetryWithoutParameter(response.status, failureBody, 'reasoning');
+      if (!removeTemperature && !removeReasoning) break;
+      if (removeTemperature) delete request.temperature;
+      if (removeReasoning) delete request.reasoning;
+    }
+
+    if (!response?.ok) {
+      throw new Error(`OpenAI request failed: ${response?.status ?? 0} ${failureBody}`);
     }
 
     const data = (await response.json()) as {
