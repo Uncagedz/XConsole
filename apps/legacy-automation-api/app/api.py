@@ -7159,6 +7159,23 @@ def _load_vehicle_assets(vin: str, *, refresh: bool = False) -> dict[str, Any]:
             existing.get("loaded_at") or datetime.now(timezone.utc).isoformat()
         ),
     }
+    if refresh:
+        payload.pop("detail_fetch_error", None)
+        stale_carfax_report = payload.get("carfax_report")
+        if isinstance(stale_carfax_report, dict) and not stale_carfax_report.get("ok"):
+            payload.pop("carfax_report", None)
+            payload.pop("carfax_summary", None)
+            facts = payload.get("carfax_facts")
+            if isinstance(facts, dict):
+                cleaned_facts = dict(facts)
+                if "fail" in str(cleaned_facts.get("report_access") or "").lower():
+                    cleaned_facts.pop("report_access", None)
+                if str(cleaned_facts.get("source") or "").lower() in {
+                    "carfax_report_blocked",
+                    "carfax_report_fetch_error",
+                }:
+                    cleaned_facts.pop("source", None)
+                payload["carfax_facts"] = cleaned_facts
 
     if detail_url and isinstance(detail_url, str):
         browser_bundle = _fetch_vehicle_asset_bundle_from_browser(detail_url=detail_url)
