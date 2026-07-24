@@ -487,22 +487,53 @@ async function lookupOneMicro(page: Page, portal: PortalLookupConfig, vin: strin
 }
 
 async function lookupCarfax(page: Page, portal: PortalLookupConfig, vin: string) {
-  const reportUrl = new URL(`/vhr/${encodeURIComponent(vin)}`, portal.lookupUrl).toString();
-  await page.goto(reportUrl, { waitUntil: 'domcontentloaded', timeout: portal.timeoutMs });
+  // CARFAX for Dealers no longer exposes a stable /vhr/{vin} report route.
+  // Submit through the authenticated dealer home screen, which is also the
+  // normal human workflow and preserves any required verification state.
+  const interactionTimeout = Math.min(portal.timeoutMs, 45_000);
+  await page.goto(portal.lookupUrl, { waitUntil: 'domcontentloaded', timeout: interactionTimeout });
   if (await hasAuthenticationChallenge(page)) {
     throw new PortalLookupError(
       'reauthentication_required',
-      'carfax needs manual login or MFA. Run the portal-login command on the Windows Local Agent.',
+      'CARFAX needs manual login or MFA. Run the portal-login command on the Windows Local Agent.',
       true,
     );
   }
-  await page.getByRole('heading', { name: 'CARFAX Report' }).waitFor({
-    state: 'visible',
-    timeout: portal.timeoutMs,
-  });
+  const vinInput = page.locator(portal.vinInputSelector).first();
+  await vinInput.waitFor({ state: 'visible', timeout: interactionTimeout });
+  await vinInput.fill(vin);
+  const runReport = page.getByRole('button', { name: 'Run Report' });
+  await runReport.waitFor({ state: 'visible', timeout: interactionTimeout });
+  await runReport.click();
+  const reportHeading = page.getByRole('heading', { name: 'CARFAX Report' });
+  const deadline = Date.now() + interactionTimeout;
+  while (Date.now() < deadline) {
+    if (await hasAuthenticationChallenge(page)) {
+      throw new PortalLookupError(
+        'reauthentication_required',
+        'CARFAX requires interactive human verification before this report can be opened.',
+        true,
+      );
+    }
+    if (await reportHeading.count() && await reportHeading.isVisible()) break;
+    const reportedError = page.getByText('An unexpected error has occurred. Please try again.');
+    if (await reportedError.count() && await reportedError.isVisible()) {
+      throw new PortalLookupError(
+        'portal_unavailable',
+        'CARFAX did not accept the dealer report request. Retry from the authenticated CARFAX session.',
+      );
+    }
+    await page.waitForTimeout(500);
+  }
+  if (!await reportHeading.count() || !await reportHeading.isVisible()) {
+    throw new PortalLookupError(
+      'portal_unavailable',
+      'CARFAX did not display the requested report before the lookup window expired.',
+    );
+  }
   await page.getByText(`VIN: ${vin}`, { exact: false }).first().waitFor({
     state: 'visible',
-    timeout: portal.timeoutMs,
+    timeout: interactionTimeout,
   });
   const summary = (await page.locator('main').innerText()).trim().slice(0, 100_000);
   return {
