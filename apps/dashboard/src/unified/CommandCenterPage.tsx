@@ -159,7 +159,12 @@ export function CommandCenterPage() {
         setJobs(nextJobs);
         if (nextJobs.every((job) => terminalJobStates.includes(job.status))) {
           window.clearInterval(timer);
-          setVehicle(await gateway.vehicle(selectedVin));
+          const [nextVehicle, nextConnectors] = await Promise.all([
+            gateway.vehicle(selectedVin),
+            gateway.connectors(),
+          ]);
+          setVehicle(nextVehicle);
+          setConnectors(nextConnectors);
         }
       }).catch((value) => setError(value instanceof Error ? value.message : String(value)));
     }, 2_500);
