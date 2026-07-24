@@ -139,8 +139,8 @@ function conditionFor(item: Record<string, unknown>, websiteUrl: string | null) 
 function sourceTimestamp(sourceStatus: Record<string, unknown> | undefined) {
   if (!sourceStatus) return null;
   return isoDate(
-    sourceStatus.updated_at
-      ?? sourceStatus.fetched_at
+    sourceStatus.fetched_at
+      ?? sourceStatus.updated_at
       ?? sourceStatus.last_synced_at
       ?? sourceStatus.last_successful_sync,
   );
