@@ -134,9 +134,16 @@ async function submitReviewedLogin(
   }
 
   if (connectorId === 'carfax') {
-    await page.getByRole('textbox', { name: 'Email address' }).fill(credentials.username);
+    // CARFAX's Auth0 page renders the visible "Email address" text without a
+    // programmatic label. Use its stable identifier rather than an ARIA name
+    // that disappears during the redirect from carfaxonline.com.
+    const username = page.locator('#username, input[name="username"], input[type="email"]').first();
+    await username.waitFor({ state: 'visible', timeout: timeoutMs });
+    await username.fill(credentials.username);
     await page.getByRole('button', { name: 'Continue' }).click();
-    await page.getByRole('textbox', { name: 'Password' }).fill(credentials.password);
+    const password = page.locator('input[type="password"]:visible').first();
+    await password.waitFor({ state: 'visible', timeout: timeoutMs });
+    await password.fill(credentials.password);
     await page.getByRole('button', { name: 'Continue' }).click();
     return;
   }
