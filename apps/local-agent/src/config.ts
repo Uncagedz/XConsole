@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { agentConfigPath, agentDataDirectory } from './paths.js';
 import { protectForCurrentWindowsUser, unprotectForCurrentWindowsUser } from './dpapi.js';
 
-export const portalConnectorIdSchema = z.enum(['reconvision', 'onemicro']);
+export const portalConnectorIdSchema = z.enum(['reconvision', 'onemicro', 'carfax']);
 export type PortalConnectorId = z.infer<typeof portalConnectorIdSchema>;
 
 export const portalLookupConfigSchema = z.object({
@@ -35,6 +35,7 @@ const configSchema = z.object({
   portals: z.object({
     reconvision: portalLookupConfigSchema.optional(),
     onemicro: portalLookupConfigSchema.optional(),
+    carfax: portalLookupConfigSchema.optional(),
   }).default({}),
 });
 

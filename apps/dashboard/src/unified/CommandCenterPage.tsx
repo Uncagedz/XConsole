@@ -143,8 +143,8 @@ export function CommandCenterPage() {
   useEffect(() => {
     if (!selectedVin || queuedVins.current.has(selectedVin) || connectors.length === 0) return;
     const connectorIds = connectors
-      .filter((connector) => connector.enabled && ['reconvision', 'onemicro'].includes(connector.id))
-      .map((connector) => connector.id as 'reconvision' | 'onemicro');
+      .filter((connector) => connector.enabled && ['reconvision', 'onemicro', 'carfax'].includes(connector.id))
+      .map((connector) => connector.id as 'reconvision' | 'onemicro' | 'carfax');
     if (!connectorIds.length) return;
     queuedVins.current.add(selectedVin);
     void gateway.lookupVehicleSources(selectedVin, connectorIds)
@@ -159,12 +159,14 @@ export function CommandCenterPage() {
         setJobs(nextJobs);
         if (nextJobs.every((job) => terminalJobStates.includes(job.status))) {
           window.clearInterval(timer);
-          const [nextVehicle, nextConnectors] = await Promise.all([
+          const [nextVehicle, nextConnectors, nextAssets] = await Promise.all([
             gateway.vehicle(selectedVin),
             gateway.connectors(),
+            gateway.vehicleAssets(selectedVin),
           ]);
           setVehicle(nextVehicle);
           setConnectors(nextConnectors);
+          setAssets(nextAssets);
         }
       }).catch((value) => setError(value instanceof Error ? value.message : String(value)));
     }, 2_500);
@@ -180,6 +182,7 @@ export function CommandCenterPage() {
   const breakdown = useMemo(() => inventoryBreakdown(inventory?.items ?? []), [inventory]);
   const attention = connectors.filter((connector) => connector.currentError || connector.reauthenticationRequired);
   const carfax = carfaxHighlights(assets);
+  const carfaxJob = jobs.find((job) => job.connectorId === 'carfax');
   const reconJob = jobs.find((job) => job.connectorId === 'reconvision');
   const oneMicroJob = jobs.find((job) => job.connectorId === 'onemicro');
 
@@ -271,8 +274,8 @@ export function CommandCenterPage() {
         <div className="ux-section-heading"><div><p className="ux-eyebrow">Automatic reads</p><h2>VIN intelligence</h2></div><span className="ux-pill">{assetsBusy ? 'Loading all sources…' : 'Automatic'}</span></div>
         <div className="ux-intelligence-grid">
           <article>
-            <header><strong>CARFAX</strong><span className="ux-pill">{assets?.carfax_url ? 'available' : assetsBusy ? 'loading' : 'not linked'}</span></header>
-            {carfax.length ? <ul>{carfax.slice(0, 6).map((item) => <li key={item}>{item}</li>)}</ul> : <p>{assetsBusy ? 'Reading the linked report…' : 'No dealership-linked report was found.'}</p>}
+            <header><strong>CARFAX</strong><span className="ux-pill">{assets?.carfax_url ? 'available' : carfaxJob?.status ?? (assetsBusy ? 'loading' : 'not linked')}</span></header>
+            {carfax.length ? <ul>{carfax.slice(0, 6).map((item) => <li key={item}>{item}</li>)}</ul> : <p>{assetsBusy || (carfaxJob && !terminalJobStates.includes(carfaxJob.status)) ? 'Reading CARFAX for Dealers automatically…' : 'No dealership report was found.'}</p>}
             {assets?.carfax_url && <a href={assets.carfax_url} target="_blank" rel="noreferrer">Open CARFAX report ↗</a>}
           </article>
           <article>

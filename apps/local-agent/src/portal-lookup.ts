@@ -11,7 +11,7 @@ import type {
   PortalLookupConfig,
 } from './config.js';
 import { failureArtifactsDirectory, portalProfileDirectory } from './paths.js';
-import { normalizePortalFields, parseReconStage } from './portal-result.js';
+import { normalizePortalFields, parseCarfaxReport, parseReconStage } from './portal-result.js';
 import { sanitizeCapturedHtml } from './sanitize.js';
 
 type FailureArtifacts = {
@@ -113,6 +113,15 @@ async function submitReviewedLogin(
     await page.getByRole('textbox', { name: 'Password' }).fill(credentials.password);
     await page.getByRole('button', { name: 'Sign In' }).click();
     await page.locator('#search_target').first().waitFor({ state: 'visible', timeout: timeoutMs });
+    return;
+  }
+
+  if (connectorId === 'carfax') {
+    await page.getByRole('textbox', { name: 'Email address' }).fill(credentials.username);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('textbox', { name: 'Password' }).fill(credentials.password);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.waitForURL(/https:\/\/www\.carfaxonline\.com\//i, { timeout: timeoutMs });
     return;
   }
 
@@ -222,6 +231,24 @@ async function lookupOneMicro(page: Page, portal: PortalLookupConfig, vin: strin
   };
 }
 
+async function lookupCarfax(page: Page, portal: PortalLookupConfig, vin: string) {
+  const reportUrl = new URL(`/vhr/${encodeURIComponent(vin)}`, portal.lookupUrl).toString();
+  await page.goto(reportUrl, { waitUntil: 'domcontentloaded', timeout: portal.timeoutMs });
+  await page.getByRole('heading', { name: 'CARFAX Report' }).waitFor({
+    state: 'visible',
+    timeout: portal.timeoutMs,
+  });
+  await page.getByText(`VIN: ${vin}`, { exact: false }).first().waitFor({
+    state: 'visible',
+    timeout: portal.timeoutMs,
+  });
+  const summary = (await page.locator('main').innerText()).trim().slice(0, 100_000);
+  return {
+    summary,
+    fields: parseCarfaxReport(summary, safeSourceUrl(page.url())),
+  };
+}
+
 export async function lookupPortalVin(
   config: AgentConfig,
   connectorId: PortalConnectorId,
@@ -249,7 +276,9 @@ export async function lookupPortalVin(
 
     const reviewed = connectorId === 'reconvision'
       ? await lookupReconVision(page, portal, vin)
-      : await lookupOneMicro(page, portal, vin);
+      : connectorId === 'onemicro'
+        ? await lookupOneMicro(page, portal, vin)
+        : await lookupCarfax(page, portal, vin);
     const entries = await Promise.all(Object.entries(portal.fieldSelectors).map(
       async ([name, selector]) => [name, await optionalText(page, selector, portal.timeoutMs)] as const,
     ));

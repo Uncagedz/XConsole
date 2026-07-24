@@ -22,6 +22,15 @@ export interface DeviceRecord {
   lastHeartbeat?: AgentHeartbeat;
 }
 
+export interface StoredCarfaxSummary {
+  owners: number | null;
+  accidents: number | null;
+  service: string | null;
+  highlights: string[];
+  reportUrl: string | null;
+  observedAt: string;
+}
+
 export interface GatewayStoreContract {
   initialize?(): Promise<void>;
   listConnectors(): MaybePromise<ConnectorSummary[]>;
@@ -29,6 +38,7 @@ export interface GatewayStoreContract {
   updateConnector(id: string, patch: Partial<Pick<ConnectorSummary, 'enabled'>>): MaybePromise<ConnectorSummary | undefined>;
   listVehicles(): MaybePromise<Vehicle[]>;
   getVehicle(vin: string): MaybePromise<Vehicle | undefined>;
+  getCarfaxSummary?(vin: string): MaybePromise<StoredCarfaxSummary | undefined>;
   upsertVehicles?(vehicles: Vehicle[]): MaybePromise<{ created: number; updated: number }>;
   registerDevice(name: string): MaybePromise<{ deviceId: string; deviceToken: string }>;
   authenticateDevice(token: string): MaybePromise<{ id: string } | undefined>;

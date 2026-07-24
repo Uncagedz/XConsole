@@ -22,7 +22,7 @@ pnpm --filter @xconsole/local-agent record -- 'https://authorized-portal.example
 Recording opens installed Chrome. Complete login/MFA yourself, navigate to the target
 page, and press Enter. Review the sanitized output before copying any fixture into Git.
 
-## Configure ReconVision or 1Micro
+## Configure ReconVision, 1Micro, or CARFAX for Dealers
 
 Portal credentials are never saved in XConsole or committed to Git. First record
 and review the authorized page, then configure only its URLs and selectors:
@@ -38,22 +38,26 @@ pnpm --filter @xconsole/local-agent configure-portal -- reconvision
 ```
 
 For 1Micro, use `onemicro` and field names `location` and `holder`. Configuration
-is stored in the DPAPI-encrypted agent file. Then open a visible login window:
+is stored in the DPAPI-encrypted agent file. For CARFAX for Dealers, use `carfax`,
+`https://www.carfaxonline.com/` for both URLs, `input[name="VIN"]` as the VIN
+selector, and `main` as the result selector. Then open a visible login window:
 
 ```powershell
 pnpm --filter @xconsole/local-agent portal-login -- reconvision
 pnpm --filter @xconsole/local-agent portal-login -- onemicro
+pnpm --filter @xconsole/local-agent portal-login -- carfax
 ```
 
 Complete login and MFA yourself. Routine `lookup-vin` jobs then reuse the separate
 portal profiles in headless mode. Authentication challenges stop the job and mark
 the connector as requiring reauthentication; they are never bypassed.
 
-For the reviewed ReconVision and 1Micro login pages, unattended first-time sign-in
+For the reviewed ReconVision, 1Micro, and CARFAX login pages, assisted first-time sign-in
 may use `XCONSOLE_PORTAL_USERNAME` and `XCONSOLE_PORTAL_PASSWORD` for that command
 only. They are read from the process environment, submitted directly to the portal,
 and are not written to the agent configuration, logs, Railway, or Git. Clear both
-variables immediately after the command completes.
+variables immediately after the command completes. CARFAX MFA remains interactive:
+enter the six-digit code in the visible portal window when prompted.
 
 ## Windows startup
 
