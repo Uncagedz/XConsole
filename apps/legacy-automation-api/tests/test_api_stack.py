@@ -179,6 +179,29 @@ def test_collect_vehicle_photo_urls_uses_cached_assets_first(monkeypatch, tmp_pa
     assert urls == ["https://example.com/full-a.jpg", "https://example.com/full-b.jpg"]
 
 
+def test_extract_vehicle_photos_prefers_complete_syndicated_account_gallery():
+    html = """
+    <script>accountId=tavernacdjrfllccllc</script>
+    <img src="https://pictures.dealer.com/t/tavernacdjrfllccllc/1234/dealer-logo.png">
+    <script>
+    {"images":[
+      "https://pictures.dealer.com/t/tavernainfinmiami/0001/frontx.jpg?impolicy=resize&w=1024",
+      "https://pictures.dealer.com/t/tavernainfinmiami/0002/sidex.jpg?impolicy=resize&w=1024",
+      "https://pictures.dealer.com/t/tavernainfinmiami/0003/rearx.jpg?impolicy=resize&w=1024",
+      "https://pictures.dealer.com/t/tavernainfinmiami/0001/thumb_frontx.jpg"
+    ]}
+    </script>
+    <button>1 of 3 Photos</button>
+    """
+    urls = api._extract_vehicle_photo_urls_from_html(html)
+    assert urls == [
+        "https://pictures.dealer.com/t/tavernainfinmiami/0001/frontx.jpg",
+        "https://pictures.dealer.com/t/tavernainfinmiami/0002/sidex.jpg",
+        "https://pictures.dealer.com/t/tavernainfinmiami/0003/rearx.jpg",
+    ]
+    assert api._expected_vehicle_photo_count_from_html(html) == 3
+
+
 def test_image_extension_from_url_and_content_type():
     assert api._image_extension_from_url_and_content_type(
         "https://example.com/photo.jpeg",

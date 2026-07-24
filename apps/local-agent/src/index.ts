@@ -48,6 +48,8 @@ async function main() {
     await configurePortal(config, connectorId, portalLookupConfigSchema.parse({
       loginUrl: process.env.XCONSOLE_PORTAL_LOGIN_URL,
       lookupUrl: process.env.XCONSOLE_PORTAL_LOOKUP_URL,
+      loginUsername: process.env.XCONSOLE_PORTAL_USERNAME || undefined,
+      loginPassword: process.env.XCONSOLE_PORTAL_PASSWORD || undefined,
       vinInputSelector: process.env.XCONSOLE_PORTAL_VIN_INPUT_SELECTOR,
       submitSelector: process.env.XCONSOLE_PORTAL_SUBMIT_SELECTOR || undefined,
       resultSelector: process.env.XCONSOLE_PORTAL_RESULT_SELECTOR,
@@ -64,8 +66,15 @@ async function main() {
     const connectorId = portalConnectorIdSchema.parse(process.argv[3]);
     const username = process.env.XCONSOLE_PORTAL_USERNAME;
     const password = process.env.XCONSOLE_PORTAL_PASSWORD;
+    const activeConfig = username && password && config.portals[connectorId]
+      ? await configurePortal(config, connectorId, {
+          ...config.portals[connectorId],
+          loginUsername: username,
+          loginPassword: password,
+        })
+      : config;
     await loginToPortal(
-      config,
+      activeConfig,
       connectorId,
       username && password ? { username, password } : undefined,
     );

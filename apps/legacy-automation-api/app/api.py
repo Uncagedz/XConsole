@@ -3385,12 +3385,6 @@ def _extract_vehicle_photo_urls_from_html(html_text: str, *, base_url: str | Non
         )
     )
 
-    parsed_base = urlparse(base_url or "")
-    account_hint = ""
-    account_match = re.search(r"accountId=([A-Za-z0-9_-]+)", html_text)
-    if account_match:
-        account_hint = account_match.group(1).strip().lower()
-
     absolute: list[str] = []
     for raw in candidates:
         candidate = str(raw or "").strip()
@@ -3405,10 +3399,6 @@ def _extract_vehicle_photo_urls_from_html(html_text: str, *, base_url: str | Non
         lowered = candidate.lower()
         if "pictures.dealer.com" not in lowered:
             continue
-        if account_hint and f"/{account_hint}/" not in lowered:
-            continue
-        if not account_hint and parsed_base.netloc and "dealer.com" not in parsed_base.netloc and "tavernacdjrfllccllc" not in lowered:
-            continue
         if "/thumb_" in lowered or "sprite" in lowered or "logo" in lowered:
             continue
         if not re.search(r"\.(?:jpe?g|png|webp)(?:[?#].*)?$", lowered):
@@ -3417,8 +3407,43 @@ def _extract_vehicle_photo_urls_from_html(html_text: str, *, base_url: str | Non
         absolute.append(candidate)
 
     deduped = _dedupe_urls(absolute)
-    primary = [url for url in deduped if "/tavernacdjrfllccllc/" in url.lower()]
-    return primary or deduped
+    jpeg_photos = [url for url in deduped if re.search(r"\.jpe?g$", url, flags=re.IGNORECASE)]
+    candidate_photos = jpeg_photos or deduped
+
+    # Dealer.com inventory can be syndicated from another store in the same
+    # group. The page accountId can therefore differ from the account that
+    # owns the actual vehicle photography. Choose the account with the largest
+    # complete image set instead of filtering by the page account (which used
+    # to leave only the dealership logo for transferred inventory).
+    photos_by_account: dict[str, list[str]] = {}
+    account_order: list[str] = []
+    for url in candidate_photos:
+        match = re.search(r"pictures\.dealer\.com/[^/]+/([^/]+)/", url, flags=re.IGNORECASE)
+        account = match.group(1).lower() if match else ""
+        if account not in photos_by_account:
+            photos_by_account[account] = []
+            account_order.append(account)
+        photos_by_account[account].append(url)
+    if photos_by_account:
+        best_account = max(account_order, key=lambda account: len(photos_by_account[account]))
+        best_photos = photos_by_account[best_account]
+        if len(best_photos) >= 2 or len(candidate_photos) == len(best_photos):
+            return best_photos
+    return candidate_photos
+
+
+def _expected_vehicle_photo_count_from_html(html_text: str) -> int | None:
+    counts: list[int] = []
+    for pattern in (
+        r"\b\d+\s+of\s+(\d{1,3})\s+photos?\b",
+        r"\b(?:photos?|images?)\s*[:(]\s*(\d{1,3})\b",
+    ):
+        for value in re.findall(pattern, html_text, flags=re.IGNORECASE):
+            try:
+                counts.append(int(value))
+            except (TypeError, ValueError):
+                continue
+    return max(counts) if counts else None
 
 
 def _extract_detail_facts_from_markdown_proxy(markdown_text: str) -> dict[str, Any]:
@@ -6948,6 +6973,9 @@ def _fetch_vehicle_asset_bundle_from_browser(
         carfax_facts: dict[str, Any] = {}
         quick_specs: dict[str, Any] = {}
         resource_text = ""
+        started_at = time.time()
+        last_photo_count = -1
+        stable_photo_cycles = 0
         while time.time() < deadline:
             time.sleep(1.5)
             html_text = str(driver.page_source or "")
@@ -6964,7 +6992,19 @@ def _fetch_vehicle_asset_bundle_from_browser(
             photos = _extract_vehicle_photo_urls_from_html(scan_blob, base_url=detail_url)
             carfax_facts = _extract_carfax_facts_from_html(scan_blob)
             quick_specs = _extract_quick_specs_from_html(html_text)
-            if links.get("carfax_url") or links.get("sticker_url") or len(photos) >= 3:
+            if len(photos) == last_photo_count:
+                stable_photo_cycles += 1
+            else:
+                stable_photo_cycles = 0
+                last_photo_count = len(photos)
+            expected_photo_count = _expected_vehicle_photo_count_from_html(html_text)
+            enough_photos = bool(expected_photo_count and len(photos) >= expected_photo_count)
+            stable_assets = (
+                time.time() - started_at >= 4.5
+                and stable_photo_cycles >= 2
+                and bool(photos or links.get("carfax_url") or links.get("sticker_url"))
+            )
+            if enough_photos or stable_assets:
                 break
         return {
             "ok": True,
@@ -7115,14 +7155,19 @@ def _load_vehicle_assets(vin: str, *, refresh: bool = False) -> dict[str, Any]:
             **(vehicle.get("carfax_facts") if isinstance(vehicle.get("carfax_facts"), dict) else {}),
             **(existing.get("carfax_facts") if isinstance(existing.get("carfax_facts"), dict) else {}),
         },
-        "loaded_at": existing.get("loaded_at") or datetime.now(timezone.utc).isoformat(),
+        "loaded_at": datetime.now(timezone.utc).isoformat() if refresh else (
+            existing.get("loaded_at") or datetime.now(timezone.utc).isoformat()
+        ),
     }
 
     if detail_url and isinstance(detail_url, str):
         browser_bundle = _fetch_vehicle_asset_bundle_from_browser(detail_url=detail_url)
         if browser_bundle.get("ok"):
             payload["detail_source_mode"] = browser_bundle.get("source_mode")
-            payload["photos"] = list(browser_bundle.get("photos") or payload["photos"])
+            payload["photos"] = _dedupe_urls([
+                *list(browser_bundle.get("photos") or []),
+                *list(payload.get("photos") or []),
+            ])
             payload["photos_count"] = len(payload["photos"])
             payload["main_photo"] = payload["photos"][0] if payload["photos"] else None
             payload["sticker_url"] = browser_bundle.get("sticker_url") or payload.get("sticker_url")
@@ -7144,6 +7189,10 @@ def _load_vehicle_assets(vin: str, *, refresh: bool = False) -> dict[str, Any]:
                 response = client.get(detail_url)
             if response.status_code < 400:
                 links = _extract_asset_links_from_html(response.text, base_url=detail_url)
+                payload["photos"] = _dedupe_urls([
+                    *_extract_vehicle_photo_urls_from_html(response.text, base_url=detail_url),
+                    *list(payload.get("photos") or []),
+                ])
                 if not payload.get("sticker_url"):
                     payload["sticker_url"] = links.get("sticker_url")
                 if not payload.get("carfax_url"):
@@ -7163,7 +7212,7 @@ def _load_vehicle_assets(vin: str, *, refresh: bool = False) -> dict[str, Any]:
             if not payload.get("detail_fetch_error"):
                 payload["detail_fetch_error"] = str(exc)
 
-    if payload.get("carfax_url"):
+    if payload.get("carfax_url") and _env_flag("CARFAX_INLINE_REPORT_FETCH", False):
         should_refresh_carfax_report = True
         existing_report = existing.get("carfax_report") if isinstance(existing.get("carfax_report"), dict) else payload.get("carfax_report")
         if isinstance(existing_report, dict) and existing_report.get("ok"):

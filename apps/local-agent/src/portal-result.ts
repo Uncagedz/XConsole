@@ -127,6 +127,41 @@ export function parseOneMicroKey(summary: string, imageUrls: string[] = []) {
   };
 }
 
+export type OneMicroHistoryRow = {
+  createdOn: string | null;
+  createdBy: string | null;
+  closedOn: string | null;
+  closedBy: string | null;
+  event: string | null;
+  kiosk: string | null;
+  tagId: string | null;
+  reason: string | null;
+};
+
+export function parseOneMicroHistory(rows: OneMicroHistoryRow[], imageUrls: string[] = []) {
+  const normalized = rows.map((row) => ({
+    createdOn: clean(row.createdOn),
+    createdBy: clean(row.createdBy),
+    closedOn: clean(row.closedOn),
+    closedBy: clean(row.closedBy),
+    event: clean(row.event),
+    kiosk: clean(row.kiosk),
+    tagId: clean(row.tagId),
+    reason: clean(row.reason),
+  }));
+  const checkout = normalized.find((row) => /\b(?:remove|checkout|assign)\b/i.test(row.event ?? ''));
+  const usefulImage = imageUrls.find((url) => !/(?:logo|icon|avatar|sprite|favicon)/i.test(url)) ?? null;
+  return {
+    history: normalized.slice(0, 50),
+    activity: normalized.slice(0, 12).map((row) => (
+      [row.event, row.createdBy, row.createdOn, row.reason].filter(Boolean).join(' · ')
+    )),
+    lastCheckedOutBy: checkout?.createdBy ?? null,
+    lastCheckedOutAt: checkout?.createdOn ?? null,
+    keyImageUrl: usefulImage,
+  };
+}
+
 export function parseCarfaxReport(summary: string, reportUrl: string) {
   const ownerMatch = summary.match(/\bCARFAX\s+(\d+)-Owner Vehicle\b/i)
     ?? summary.match(/\b(\d+)\s+Owner(?:s)?\b/i);

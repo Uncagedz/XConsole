@@ -37,6 +37,9 @@ export type InventoryStatus = z.infer<typeof inventoryStatusSchema>;
 const vehicleAssetsSchema = z.object({
   vin: z.string(),
   loaded_at: z.string().nullable().optional(),
+  photos: z.array(z.string().url()).default([]),
+  photos_count: z.coerce.number().int().nonnegative().optional(),
+  main_photo: z.string().url().nullable().optional(),
   sticker_url: z.string().url().nullable().optional(),
   sticker_highlights: z.array(z.string()).default([]),
   quick_specs: z.record(z.unknown()).default({}),
