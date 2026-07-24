@@ -220,6 +220,7 @@ export function CommandCenterPage() {
   const features = useMemo(() => uniqueFactoryFeatures(assets), [assets]);
   const copy = useMemo(() => sellingDescriptions(vehicle, assets), [assets, vehicle]);
   const sourceAge = ago(inventoryStatus?.source.synchronizedAt ?? inventory?.source.synchronizedAt, now);
+  const liveFresh = Boolean(inventory?.source.live && !inventory.source.stale);
 
   async function uploadValuation() {
     if (!valuationFile) return;
@@ -253,8 +254,8 @@ export function CommandCenterPage() {
           <kbd>{filtered.length.toLocaleString()}</kbd>
         </label>
         <div className="mc-system">
-          <span className={`mc-signal ${inventory?.source.live && !inventory.source.stale ? 'on' : 'warn'}`} />
-          <div><strong>{inventory?.source.live ? 'LIVE SOURCE' : 'SAFE CACHE'}</strong><small>verified {sourceAge}</small></div>
+          <span className={`mc-signal ${liveFresh ? 'on' : 'warn'}`} />
+          <div><strong>{liveFresh ? 'LIVE SOURCE' : 'SAFE CACHE'}</strong><small>{liveFresh ? 'verified' : 'last upstream snapshot'} {sourceAge}</small></div>
           <time>{now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>
           <button type="button" onClick={() => void logout()}>Sign out</button>
         </div>
@@ -319,7 +320,7 @@ export function CommandCenterPage() {
               </section>
 
               <section className="mc-readiness">
-                <article><span className="mc-signal on" /><div><small>INVENTORY</small><strong>Live listing</strong></div><em>{sourceAge}</em></article>
+                <article><span className={`mc-signal ${liveFresh ? 'on' : 'warn'}`} /><div><small>INVENTORY</small><strong>{liveFresh ? 'live listing' : 'cached listing'}</strong></div><em>{sourceAge}</em></article>
                 <article><span className={`mc-signal ${carfax.highlights.length ? 'on' : 'warn'}`} /><div><small>CARFAX</small><strong>{carfax.dealerVerified ? 'dealer verified' : carfax.highlights.length ? 'public fallback' : statusLabel(connector('carfax'), job('carfax'), false)}</strong></div><em>{ago(carfax.observedAt, now)}</em></article>
                 <article><span className={`mc-signal ${recon.stage ? 'on' : 'warn'}`} /><div><small>RECONVISION</small><strong>{statusLabel(connector('reconvision'), job('reconvision'), Boolean(recon.stage))}</strong></div><em>{ago(recon.observedAt, now)}</em></article>
                 <article><span className={`mc-signal ${key.location ? 'on' : 'warn'}`} /><div><small>1MICRO</small><strong>{statusLabel(connector('onemicro'), job('onemicro'), Boolean(key.location))}</strong></div><em>{ago(key.observedAt, now)}</em></article>
