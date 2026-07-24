@@ -54,7 +54,11 @@ async function hasAuthenticationChallenge(page: Page) {
   const verification = await page.locator(
     'input[autocomplete="one-time-code"]:visible, iframe[src*="captcha" i]:visible, [data-sitekey]:visible',
   ).count();
-  return password > 0 || verification > 0 || /(?:login|log-in|sign-in|authenticate|mfa)/i.test(new URL(page.url()).pathname);
+  const signIn = await page.locator('a[href="/login"]:visible').count();
+  return password > 0
+    || verification > 0
+    || signIn > 0
+    || /(?:login|log-in|sign-in|authenticate|mfa|landingPage)/i.test(new URL(page.url()).pathname);
 }
 
 async function saveFailureArtifacts(page: Page, connectorId: PortalConnectorId) {
