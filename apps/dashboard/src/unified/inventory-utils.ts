@@ -75,10 +75,26 @@ const ignoredSearchWords = new Set([
   'under', 'below', 'less', 'than', 'over', 'above', 'more', 'at', 'least', 'miles', 'mile', 'range',
   'price', 'priced', 'tows', 'tow', 'towing', 'pounds', 'lbs', 'seats', 'seat',
   'able', 'any', 'can', 'could', 'do', 'does', 'got', 'something', 'what', 'you',
+  'third', '3rd', 'row',
 ]);
 
 function naturalCriteria(query: string): NaturalCriteria {
   const normalized = query.toLowerCase().replace(/[?!.]/g, ' ');
+  const exactVin = normalized.replace(/[^a-z0-9]/g, '');
+  if (/^[a-hj-npr-z0-9]{17}$/.test(exactVin)) {
+    return {
+      rawQuery: exactVin,
+      maxPrice: null,
+      minPrice: null,
+      maxMileage: null,
+      minTowing: null,
+      minRange: null,
+      minSeats: null,
+      thirdRow: false,
+      terms: [exactVin],
+      labels: [`VIN ${exactVin.toUpperCase()}`],
+    };
+  }
   const amount = '([$]?\\s*[\\d,.]+\\s*k?)';
   const maxPriceMatch = normalized.match(new RegExp(`(?:under|below|less than|max(?:imum)?(?: price)?(?: of)?|up to)\\s*${amount}`));
   const minPriceMatch = normalized.match(new RegExp(`(?:over|above|more than|min(?:imum)?(?: price)?(?: of)?|at least)\\s*${amount}`));

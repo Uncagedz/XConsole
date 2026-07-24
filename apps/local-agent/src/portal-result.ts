@@ -111,8 +111,12 @@ export function parseReconActivity(summary: string): ReconActivityEvent[] {
       /(?:completed service|completed task|moved Work Order|assigned Job|created Work Order|changed status|reopened)/i.test(line)
     ));
     if (actionIndex < 0) continue;
-    const actionText = following[actionIndex]!;
-    const actorCandidate = following.slice(0, actionIndex).find((line) => (
+    const actionLine = following[actionIndex]!;
+    const inlineActor = actionLine.match(
+      /^([A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+){1,3})\s+((?:completed service|completed task|moved Work Order|assigned Job|created Work Order|changed status|reopened).*)$/i,
+    );
+    const actionText = inlineActor?.[2] ?? actionLine;
+    const actorCandidate = clean(inlineActor?.[1]) ?? following.slice(0, actionIndex).find((line) => (
       /^[A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+){1,3}$/.test(line)
     )) ?? null;
     const service = actionText.match(/completed service\s+(.+?)(?:\s+on behalf of\s+(.+?))?\s+for Work Order/i);

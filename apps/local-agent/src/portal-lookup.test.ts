@@ -134,6 +134,32 @@ describe('portal VIN result normalization', () => {
     ]));
   });
 
+  it('reads technician names when ReconVision renders each activity as one text line', () => {
+    const events = parseReconActivity([
+      '01/24/2026 10:20AM',
+      'Mark Hridin completed service Water Pump for Work Order #TVC3624015',
+      '01/27/2026 12:50PM',
+      'Juan Cardier completed service Body Work - General Repair (body) for Work Order #TVC3624015',
+      '01/27/2026 3:49PM',
+      'Sean Childrey completed service Photos for Work Order #TVC3624015',
+    ].join('\n'));
+
+    expect(events.filter((event) => event.repair)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        occurredAt: '01/27/2026 12:50PM',
+        actor: 'Juan Cardier',
+        technician: 'Juan Cardier',
+        description: 'Body Work - General Repair (body)',
+      }),
+      expect.objectContaining({
+        occurredAt: '01/24/2026 10:20AM',
+        actor: 'Mark Hridin',
+        technician: 'Mark Hridin',
+        description: 'Water Pump',
+      }),
+    ]));
+  });
+
   it('extracts the last 1Micro key custodian, time, and useful photo', () => {
     expect(parseOneMicroKey([
       'Tag Location :',
