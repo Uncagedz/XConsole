@@ -5,15 +5,13 @@ import './unified.css';
 import './shell.css';
 
 const navigation = [
-  ['/dashboard', 'Dashboard'],
-  ['/inventory', 'Inventory'],
-  ['/leads', 'Leads'],
-  ['/tasks', 'Tasks'],
-  ['/marketplace', 'Marketplace'],
-  ['/messenger', 'Messenger'],
-  ['/bank-brain', 'Bank Brain'],
-  ['/connectors', 'Connectors'],
-  ['/settings', 'Settings'],
+  ['overview', 'Overview'],
+  ['inventory', 'Inventory'],
+  ['vehicle', 'Vehicle'],
+  ['intelligence', 'VIN intelligence'],
+  ['bank-brain', 'JD Power / LTV'],
+  ['connectors', 'Connectors'],
+  ['messenger', 'Messenger'],
 ] as const;
 
 export function UnifiedShell() {
@@ -116,13 +114,14 @@ export function UnifiedShell() {
           <div><strong>XConsole</strong><small>Personal dealership OS</small></div>
         </div>
         <nav>
-          {navigation.map(([to, label]) => (
-            <NavLink key={to} to={to} className={({ isActive }) => (isActive ? 'active' : '')}>
+          {navigation.map(([section, label]) => (
+            <a key={section} href={`/dashboard#${section}`}>
               {label}
-            </NavLink>
+            </a>
           ))}
         </nav>
         <div className="ux-sidebar-footer">
+          <NavLink to="/settings" className="ux-legacy-link">Settings & devices</NavLink>
           <NavLink to="/legacy" className="ux-legacy-link">Legacy command center</NavLink>
           <button type="button" onClick={logout}>Sign out</button>
         </div>
