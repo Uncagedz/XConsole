@@ -39,7 +39,8 @@ pnpm --filter @xconsole/local-agent configure-portal -- reconvision
 
 For 1Micro, use `onemicro` and field names `location` and `holder`. Configuration
 is stored in the DPAPI-encrypted agent file. For CARFAX for Dealers, use `carfax`,
-`https://www.carfaxonline.com/` for both URLs, `input[name="VIN"]` as the VIN
+`https://www.carfaxonline.com/login` for the login URL,
+`https://www.carfaxonline.com/` for the lookup URL, `input[name="VIN"]` as the VIN
 selector, and `main` as the result selector. Then open a visible login window:
 
 ```powershell

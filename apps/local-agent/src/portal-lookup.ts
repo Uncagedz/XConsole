@@ -147,6 +147,15 @@ export async function loginToPortal(
   try {
     const page = context.pages()[0] ?? await context.newPage();
     await page.goto(portal.loginUrl, { waitUntil: 'domcontentloaded', timeout: portal.timeoutMs });
+    if (connectorId === 'carfax' && !(await hasAuthenticationChallenge(page))) {
+      const signIn = page.locator('a[href="/login"]');
+      if (await signIn.count()) {
+        await page.goto(new URL('/login', page.url()).toString(), {
+          waitUntil: 'domcontentloaded',
+          timeout: portal.timeoutMs,
+        });
+      }
+    }
     if (credentials) {
       if (await hasAuthenticationChallenge(page)) {
         await submitReviewedLogin(page, connectorId, credentials, portal.timeoutMs);
@@ -234,6 +243,13 @@ async function lookupOneMicro(page: Page, portal: PortalLookupConfig, vin: strin
 async function lookupCarfax(page: Page, portal: PortalLookupConfig, vin: string) {
   const reportUrl = new URL(`/vhr/${encodeURIComponent(vin)}`, portal.lookupUrl).toString();
   await page.goto(reportUrl, { waitUntil: 'domcontentloaded', timeout: portal.timeoutMs });
+  if (await hasAuthenticationChallenge(page)) {
+    throw new PortalLookupError(
+      'reauthentication_required',
+      'carfax needs manual login or MFA. Run the portal-login command on the Windows Local Agent.',
+      true,
+    );
+  }
   await page.getByRole('heading', { name: 'CARFAX Report' }).waitFor({
     state: 'visible',
     timeout: portal.timeoutMs,
