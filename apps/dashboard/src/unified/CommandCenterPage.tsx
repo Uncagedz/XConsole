@@ -149,17 +149,24 @@ export function CommandCenterPage() {
 
   useEffect(() => {
     if (!selectedVin) return;
-    setVehicle(null);
+    const selected = inventory?.items.find((item) => item.vin === selectedVin);
+    if (!selected) return;
+    setVehicle((current) => current?.vin === selectedVin ? current : selected);
+  }, [inventory, selectedVin]);
+
+  useEffect(() => {
+    if (!selectedVin) return;
     setAssets(null);
     setJobs([]);
     setAssetsBusy(true);
     let active = true;
-    void Promise.all([
-      gateway.vehicle(selectedVin),
-      gateway.vehicleAssets(selectedVin, true),
-    ]).then(([nextVehicle, nextAssets]) => {
+    void gateway.vehicle(selectedVin).then((nextVehicle) => {
+      if (active) setVehicle(nextVehicle);
+    }).catch((value) => {
+      if (active) setError(value instanceof Error ? value.message : String(value));
+    });
+    void gateway.vehicleAssets(selectedVin, true).then((nextAssets) => {
       if (!active) return;
-      setVehicle(nextVehicle);
       setAssets(nextAssets);
       setError('');
     }).catch((value) => {
