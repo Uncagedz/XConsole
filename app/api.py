@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import httpx
 try:
@@ -5493,7 +5493,17 @@ def _extract_sticker_features_from_url(sticker_url: str, *, timeout_seconds: flo
                 'Accept': 'application/pdf,text/html,*/*;q=0.8',
             })
         if response.status_code >= 400:
-            return []
+            vin = str((parse_qs(urlparse(source_url).query).get('vin') or [''])[0]).strip().upper()
+            if not vin or 'chrysler.com/hostd/windowsticker/' in source_url.lower():
+                return []
+            source_url = f'https://www.chrysler.com/hostd/windowsticker/getWindowStickerPdf.do?vin={vin}'
+            with httpx.Client(timeout=timeout_seconds, follow_redirects=True) as client:
+                response = client.get(source_url, headers={
+                    'User-Agent': 'Mozilla/5.0 XConsoleStickerParser/1.0',
+                    'Accept': 'application/pdf,text/html,*/*;q=0.8',
+                })
+            if response.status_code >= 400:
+                return []
         content_type = response.headers.get('content-type', '').lower()
         text = ''
         if ('pdf' in content_type or source_url.lower().split('?', 1)[0].endswith('.pdf')) and PdfReader is not None:
@@ -5512,6 +5522,21 @@ def _extract_sticker_features_from_url(sticker_url: str, *, timeout_seconds: flo
             and feature_pattern.search(line)
             and not re.match(r'^(?:window sticker|monroney|msrp|total|destination|disclaimer|warranty)\b', line, flags=re.IGNORECASE)
         ]
+        section_pattern = re.compile(r'(?:standard equipment|exterior features|interior features|optional equipment)', flags=re.IGNORECASE)
+        stop_pattern = re.compile(r'^(?:destination charge|total price|warranty coverage|epa|government|parts content|for more information|this vehicle is manufactured|this label)', flags=re.IGNORECASE)
+        in_equipment_section = False
+        for line in lines:
+            if not (4 <= len(line) <= 180):
+                continue
+            if section_pattern.search(line):
+                in_equipment_section = True
+                continue
+            if stop_pattern.search(line):
+                in_equipment_section = False
+                continue
+            if in_equipment_section and not re.match(r'^(?:window sticker|monroney|msrp|total|destination|disclaimer|warranty)\b', line, flags=re.IGNORECASE):
+                features.append(line)
+        features = _dedupe_strings(features)
         return _dedupe_strings(features)[:40]
     except Exception:
         return []
