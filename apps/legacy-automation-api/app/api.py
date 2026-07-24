@@ -3958,6 +3958,7 @@ def _merge_cached_vehicle_assets(items: list[dict[str, Any]]) -> list[dict[str, 
                 row[key] = value
         quick_specs = cached.get("quick_specs")
         if isinstance(quick_specs, dict):
+            quick_specs = _derive_powertrain_specs(quick_specs)
             # Inventory cards occasionally abbreviate an odometer (for example
             # 74 instead of 74,629). A VIN-matched detail-page read is more
             # precise and should enrich the live card without making the cache
@@ -3976,6 +3977,51 @@ def _merge_cached_vehicle_assets(items: list[dict[str, Any]]) -> list[dict[str, 
                 value = quick_specs.get(cached_key)
                 if value not in (None, "", [], {}) and not row.get(row_key):
                     row[row_key] = value
+            for cached_key, row_key in (
+                ("body_style", "body_style"),
+                ("fuel_type", "fuel_type"),
+                ("powertrain_type", "powertrain_type"),
+                ("mpg_city", "mpg_city"),
+                ("mpg_hwy", "mpg_hwy"),
+                ("mpg_combined", "mpg_combined"),
+                ("estimated_range_miles", "estimated_range_miles"),
+                ("electric_range_miles", "electric_range_miles"),
+                ("fuel_tank_gallons", "fuel_tank_gallons"),
+                ("seating_capacity", "seating_capacity"),
+                ("max_towing_capacity", "max_towing_capacity"),
+                ("curb_weight", "curb_weight"),
+                ("horsepower", "horsepower"),
+                ("torque", "torque"),
+            ):
+                value = quick_specs.get(cached_key)
+                if value in (None, "", [], {}):
+                    continue
+                parsed = _spec_number(value)
+                row[row_key] = parsed if parsed is not None and cached_key not in {
+                    "body_style", "fuel_type", "powertrain_type",
+                } else value
+            third_row = str(quick_specs.get("third_row_seats") or "").strip().lower()
+            if third_row:
+                row["third_row_seats"] = not bool(re.search(r"\b(?:no|none|not available|false)\b", third_row))
+            row["metadata_loaded_at"] = cached.get("loaded_at") or cached.get("last_ingested_at")
+            row["metadata_complete"] = bool(
+                row.get("engine")
+                and row.get("transmission")
+                and row.get("fuel_type")
+                and row.get("body_style")
+            )
+            row["search_facts"] = _dedupe_strings([
+                str(value)
+                for value in [
+                    row.get("body_style"),
+                    row.get("fuel_type"),
+                    row.get("powertrain_type"),
+                    row.get("drivetrain"),
+                    quick_specs.get("third_row_seats"),
+                    *list(_quick_spec_highlights(quick_specs)),
+                ]
+                if value not in (None, "", [], {})
+            ])
 
         clean_vin = str(row.get("vin") or "").upper()
         cached_summary = cached.get("carfax_summary")
@@ -4364,6 +4410,104 @@ def _prime_inventory_asset_summaries(items: list[dict[str, Any]]) -> dict[str, A
     return stats
 
 
+def _prefetch_inventory_detail_metadata(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Populate searchable specs and complete photo sets before inventory is published."""
+    stats = {"requested": 0, "fetched": 0, "cached": 0, "errors": 0, "with_metadata": 0}
+    try:
+        configured_workers = int(os.getenv("INVENTORY_METADATA_WORKERS", "48") or "48")
+    except ValueError:
+        configured_workers = 48
+    workers = min(64, max(4, configured_workers))
+    try:
+        request_timeout = float(os.getenv("INVENTORY_METADATA_TIMEOUT_SECONDS", "6") or "6")
+    except ValueError:
+        request_timeout = 6.0
+
+    targets: list[tuple[str, str, dict[str, Any]]] = []
+    for item in items:
+        clean_vin = str(item.get("vin") or "").strip().upper()
+        detail_url = str(item.get("detail_url") or item.get("website_url") or "").strip()
+        if not clean_vin or clean_vin == "UNKNOWN":
+            continue
+        existing = _safe_read_json(_vehicle_assets_cache_path(clean_vin), {})
+        existing = existing if isinstance(existing, dict) else {}
+        specs = existing.get("quick_specs") if isinstance(existing.get("quick_specs"), dict) else {}
+        cached_photos = existing.get("photos") if isinstance(existing.get("photos"), list) else []
+        complete_specs = bool(
+            specs.get("engine")
+            and specs.get("transmission")
+            and specs.get("fuel_type")
+            and specs.get("body_style")
+        )
+        if complete_specs and len(cached_photos) > 1:
+            stats["cached"] += 1
+            stats["with_metadata"] += 1
+            continue
+        if detail_url:
+            targets.append((clean_vin, detail_url, existing))
+
+    stats["requested"] = len(targets)
+
+    def fetch_target(target: tuple[str, str, dict[str, Any]]) -> tuple[str, str, dict[str, Any], dict[str, Any] | None]:
+        clean_vin, detail_url, existing = target
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 XConsoleInventoryMetadata/2.0",
+                "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+            }
+            with httpx.Client(timeout=request_timeout, follow_redirects=True, headers=headers) as client:
+                response = client.get(detail_url)
+            if response.status_code >= 400:
+                return clean_vin, detail_url, existing, None
+            links = _extract_asset_links_from_html(response.text, base_url=detail_url)
+            return clean_vin, detail_url, existing, {
+                "quick_specs": _extract_quick_specs_from_html(response.text),
+                "photos": _extract_vehicle_photo_urls_from_html(response.text, base_url=detail_url),
+                "sticker_url": links.get("sticker_url"),
+                "carfax_url": links.get("carfax_url"),
+                "carfax_facts": _extract_carfax_facts_from_html(response.text),
+            }
+        except Exception:
+            return clean_vin, detail_url, existing, None
+
+    if targets:
+        with ThreadPoolExecutor(max_workers=min(workers, len(targets)), thread_name_prefix="inventory-metadata") as executor:
+            results = list(executor.map(fetch_target, targets))
+        now = datetime.now(timezone.utc).isoformat()
+        for clean_vin, detail_url, existing, fetched in results:
+            if not fetched:
+                stats["errors"] += 1
+                continue
+            specs = dict(existing.get("quick_specs") if isinstance(existing.get("quick_specs"), dict) else {})
+            specs.update(fetched.get("quick_specs") or {})
+            specs = _derive_powertrain_specs(specs)
+            photos = _dedupe_urls([
+                *list(fetched.get("photos") or []),
+                *list(existing.get("photos") if isinstance(existing.get("photos"), list) else []),
+            ])
+            carfax_facts = dict(existing.get("carfax_facts") if isinstance(existing.get("carfax_facts"), dict) else {})
+            carfax_facts.update(fetched.get("carfax_facts") or {})
+            payload = {
+                **existing,
+                "vin": clean_vin,
+                "detail_url": detail_url,
+                "quick_specs": specs,
+                "photos": photos,
+                "photos_count": len(photos),
+                "main_photo": photos[0] if photos else existing.get("main_photo"),
+                "sticker_url": fetched.get("sticker_url") or existing.get("sticker_url"),
+                "carfax_url": fetched.get("carfax_url") or existing.get("carfax_url"),
+                "carfax_facts": carfax_facts,
+                "loaded_at": now,
+                "metadata_source": "inventory_detail_prefetch",
+            }
+            _safe_write_json(_vehicle_assets_cache_path(clean_vin), payload)
+            stats["fetched"] += 1
+            if specs.get("engine") and specs.get("transmission"):
+                stats["with_metadata"] += 1
+    return stats
+
+
 def _inventory_source_status() -> dict[str, Any]:
     live_payload = _read_inventory_blob_with_backup(INVENTORY_LIVE_CACHE_PATH, INVENTORY_LIVE_BACKUP_PATH)
     snapshot_payload = _safe_read_json(INVENTORY_SNAPSHOT_PATH, [])
@@ -4490,6 +4634,22 @@ def _sync_live_inventory(
         diagnostics.append(f"status_enrichment_base_records={len(existing_items)}")
     fetched_at = datetime.now(timezone.utc).isoformat()
     joined_source = ", ".join(target_sources)
+    metadata_prefetch = _prefetch_inventory_detail_metadata(merged_items) if merged_items else {
+        "requested": 0,
+        "fetched": 0,
+        "cached": 0,
+        "errors": 0,
+        "with_metadata": 0,
+    }
+    merged_items = _merge_cached_vehicle_assets(merged_items)
+    diagnostics.append(
+        "metadata_prefetch="
+        f"requested:{metadata_prefetch.get('requested', 0)},"
+        f"fetched:{metadata_prefetch.get('fetched', 0)},"
+        f"cached:{metadata_prefetch.get('cached', 0)},"
+        f"ready:{metadata_prefetch.get('with_metadata', 0)},"
+        f"errors:{metadata_prefetch.get('errors', 0)}"
+    )
     asset_prime = _prime_inventory_asset_summaries(merged_items) if merged_items else {
         "primed": 0,
         "skipped": 0,
@@ -4547,6 +4707,7 @@ def _sync_live_inventory(
         "items": merged_items,
         "persisted": bool(persist and merged_items),
         "asset_summary_prime": asset_prime,
+        "metadata_prefetch": metadata_prefetch,
         "diagnostics": diagnostics,
         "errors": errors,
         "source_status": _inventory_source_status(),
@@ -5088,7 +5249,7 @@ def _extract_quick_specs_from_html(html_text: str) -> dict[str, Any]:
             if value not in (None, "", [], {}):
                 merged[key] = value
     merged.update(_extract_standard_specs_from_html(html_text))
-    return merged
+    return _derive_powertrain_specs(merged)
 
 
 def _extract_standard_specs_from_html(html_text: str) -> dict[str, Any]:
@@ -5148,6 +5309,15 @@ def _extract_standard_specs_from_html(html_text: str) -> dict[str, Any]:
         "cargo volume": "cargo_volume",
         "wheelbase": "wheelbase",
         "ground clearance (max)": "ground_clearance",
+        "fuel tank capacity, approx": "fuel_tank_capacity",
+        "fuel tank capacity": "fuel_tank_capacity",
+        "fuel tank size": "fuel_tank_capacity",
+        "estimated range": "estimated_range_miles",
+        "total driving range": "estimated_range_miles",
+        "all-electric range": "electric_range_miles",
+        "electric range": "electric_range_miles",
+        "battery range": "electric_range_miles",
+        "battery capacity": "battery_capacity",
     }
     facts: dict[str, Any] = {}
     for raw_label, value in rows:
@@ -5158,6 +5328,63 @@ def _extract_standard_specs_from_html(html_text: str) -> dict[str, Any]:
         if key not in facts or label.startswith("engine "):
             facts[key] = value
     return facts
+
+
+def _spec_number(value: Any) -> float | None:
+    match = re.search(r"-?\d[\d,]*(?:\.\d+)?", str(value or ""))
+    if not match:
+        return None
+    try:
+        return float(match.group(0).replace(",", ""))
+    except ValueError:
+        return None
+
+
+def _derive_powertrain_specs(quick_specs: dict[str, Any]) -> dict[str, Any]:
+    specs = dict(quick_specs or {})
+    fuel = str(specs.get("fuel_type") or "").lower()
+    engine = str(specs.get("engine") or "").lower()
+    searchable = " ".join(
+        str(specs.get(key) or "")
+        for key in ("fuel_type", "engine", "model", "body_style")
+    ).lower()
+    if re.search(r"\b(?:battery electric|bev|electric)\b", searchable) and "hybrid" not in searchable:
+        powertrain = "Electric"
+    elif re.search(r"\b(?:plug[- ]?in hybrid|phev)\b", searchable):
+        powertrain = "Plug-in Hybrid"
+    elif "hybrid" in searchable:
+        powertrain = "Hybrid"
+    elif "diesel" in searchable:
+        powertrain = "Diesel"
+    elif re.search(r"\b(?:gas|gasoline|petrol)\b", fuel) or re.search(
+        r"\b(?:turbo|supercharged|v[468]|i[346]|cylinder|gas)\b|\d+(?:\.\d+)?l\b",
+        engine,
+    ):
+        powertrain = "Gasoline"
+    else:
+        powertrain = ""
+    if powertrain:
+        specs["powertrain_type"] = powertrain
+
+    tank = _spec_number(specs.get("fuel_tank_capacity"))
+    if tank is not None:
+        specs["fuel_tank_gallons"] = tank
+    electric_range = _spec_number(specs.get("electric_range_miles"))
+    if electric_range is not None:
+        specs["electric_range_miles"] = electric_range
+    estimated_range = _spec_number(specs.get("estimated_range_miles"))
+    if estimated_range is None and tank:
+        mpg = _spec_number(specs.get("mpg_combined"))
+        if mpg is None:
+            city = _spec_number(specs.get("mpg_city"))
+            highway = _spec_number(specs.get("mpg_hwy"))
+            if city is not None and highway is not None:
+                mpg = (city + highway) / 2
+        if mpg:
+            estimated_range = round(tank * mpg)
+    if estimated_range is not None:
+        specs["estimated_range_miles"] = estimated_range
+    return specs
 
 
 def _quick_spec_highlights(quick_specs: dict[str, Any]) -> list[str]:

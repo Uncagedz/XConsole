@@ -16,9 +16,11 @@ import {
   parseCarfaxReport,
   parseOneMicroHistory,
   parseOneMicroKey,
+  parseReconActivity,
   parseReconRepairOrder,
   parseReconStage,
   parseReconTimeline,
+  type ReconActivityEvent,
 } from './portal-result.js';
 import { sanitizeCapturedHtml } from './sanitize.js';
 
@@ -263,7 +265,36 @@ async function lookupReconVision(page: Page, portal: PortalLookupConfig, vin: st
     try {
       await detailPage.goto(link.href, { waitUntil: 'domcontentloaded', timeout: portal.timeoutMs });
       const detail = (await detailPage.locator('body').innerText()).trim().slice(0, 50_000);
-      repairOrders.push(parseReconRepairOrder(detail, safeSourceUrl(link.href), link.label));
+      const parsed = parseReconRepairOrder(detail, safeSourceUrl(link.href), link.label);
+      const activityUrl = new URL(link.href);
+      activityUrl.pathname = activityUrl.pathname.replace(/\/(?:edit|activity)\/?$/, '') + '/activity';
+      let activity: ReconActivityEvent[] = [];
+      try {
+        await detailPage.goto(activityUrl.toString(), { waitUntil: 'domcontentloaded', timeout: portal.timeoutMs });
+        activity = parseReconActivity((await detailPage.locator('body').innerText()).trim().slice(0, 100_000));
+      } catch {
+        activity = [];
+      }
+      const serviceEvents = activity.filter((event) => event.action === 'service');
+      const repairEvents = serviceEvents.filter((event) => event.repair);
+      const lastService = serviceEvents[0];
+      const lastRepair = repairEvents[0];
+      repairOrders.push({
+        ...parsed,
+        completedAt: lastService?.occurredAt ?? parsed.completedAt,
+        technician: lastRepair?.technician ?? lastService?.technician ?? parsed.technician,
+        workPerformed: serviceEvents.length
+          ? [...new Set(serviceEvents.map((event) => event.description))]
+          : parsed.workPerformed,
+        activity,
+        lastRepairAt: lastRepair?.occurredAt ?? null,
+        lastRepairTechnician: lastRepair?.technician ?? null,
+        lastRepairWork: lastRepair?.description ?? null,
+        lastServiceAt: lastService?.occurredAt ?? null,
+        lastServiceBy: lastService?.technician ?? lastService?.actor ?? null,
+        lastServiceWork: lastService?.description ?? null,
+        technicians: [...new Set(serviceEvents.map((event) => event.technician).filter(Boolean))],
+      });
     } catch {
       repairOrders.push(parseReconRepairOrder('', safeSourceUrl(link.href), link.label));
     } finally {
@@ -286,6 +317,20 @@ async function lookupReconVision(page: Page, portal: PortalLookupConfig, vin: st
       })
     : tableTimeline;
   const completedItems = timeline.flatMap((order) => order.workPerformed);
+  const activityOrders = timeline.filter((order): order is typeof order & {
+    lastRepairAt: string | null;
+    lastRepairTechnician: string | null;
+    lastRepairWork: string | null;
+    lastServiceAt: string | null;
+    lastServiceBy: string | null;
+    lastServiceWork: string | null;
+  } => 'lastRepairAt' in order);
+  const latestRepair = activityOrders
+    .filter((order) => order.lastRepairAt)
+    .sort((left, right) => Date.parse(right.lastRepairAt ?? '') - Date.parse(left.lastRepairAt ?? ''))[0];
+  const latestService = activityOrders
+    .filter((order) => order.lastServiceAt)
+    .sort((left, right) => Date.parse(right.lastServiceAt ?? '') - Date.parse(left.lastServiceAt ?? ''))[0];
   return {
     summary,
     fields: {
@@ -294,8 +339,14 @@ async function lookupReconVision(page: Page, portal: PortalLookupConfig, vin: st
       frontlineReady: stage ? /archived|close ro|frontline/i.test(stage) : null,
       repairOrders: timeline,
       timeline,
+      lastRepairAt: latestRepair?.lastRepairAt ?? null,
+      lastRepairTechnician: latestRepair?.lastRepairTechnician ?? null,
+      lastRepairWork: latestRepair?.lastRepairWork ?? null,
+      lastServiceAt: latestService?.lastServiceAt ?? null,
+      lastServiceBy: latestService?.lastServiceBy ?? null,
+      lastServiceWork: latestService?.lastServiceWork ?? null,
       workSummary: completedItems.length
-        ? completedItems.slice(0, 8).join(' · ')
+        ? `${timeline.length} repair orders · ${completedItems.length} completed services`
         : `${timeline.length} repair order${timeline.length === 1 ? '' : 's'} found`,
     },
   };

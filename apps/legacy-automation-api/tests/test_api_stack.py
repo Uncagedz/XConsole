@@ -597,6 +597,27 @@ def test_extract_standard_specs_from_html_summarizes_capability():
     }
 
 
+def test_derive_powertrain_specs_calculates_range_and_fuel_tank():
+    assert api._derive_powertrain_specs(
+        {
+            "fuel_type": "Gasoline",
+            "engine": "3.0L Turbo",
+            "fuel_tank_capacity": "23.8 gal.",
+            "mpg_city": "18",
+            "mpg_hwy": "23",
+        }
+    ) == {
+        "fuel_type": "Gasoline",
+        "engine": "3.0L Turbo",
+        "fuel_tank_capacity": "23.8 gal.",
+        "mpg_city": "18",
+        "mpg_hwy": "23",
+        "powertrain_type": "Gasoline",
+        "fuel_tank_gallons": 23.8,
+        "estimated_range_miles": 488,
+    }
+
+
 def test_merge_cached_vehicle_assets_prefers_cached_photos(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "VEHICLE_ASSETS_CACHE_DIR", tmp_path / "vehicle_assets")
     cache_path = api._vehicle_assets_cache_path("2C4RC1BG9TR191376")
@@ -607,7 +628,7 @@ def test_merge_cached_vehicle_assets_prefers_cached_photos(monkeypatch, tmp_path
             '  "photos": ["https://example.com/full-1.jpg", "https://example.com/full-2.jpg"],\n'
             '  "sticker_url": "https://example.com/sticker",\n'
             '  "carfax_url": "https://example.com/carfax",\n'
-            '  "quick_specs": {"mileage": 74629, "stock_number": "NV946662"}\n'
+            '  "quick_specs": {"mileage": 74629, "stock_number": "NV946662", "engine": "3.6L V6", "transmission": "9-Speed Automatic", "fuel_type": "Gasoline", "body_style": "Passenger Van", "third_row_seats": "split-bench", "seating_capacity": "7"}\n'
             "}\n"
         ),
         encoding="utf-8",
@@ -628,6 +649,10 @@ def test_merge_cached_vehicle_assets_prefers_cached_photos(monkeypatch, tmp_path
     assert items[0]["carfax_url"] == "https://example.com/carfax"
     assert items[0]["mileage"] == 74629
     assert items[0]["stock_number"] == "NV946662"
+    assert items[0]["powertrain_type"] == "Gasoline"
+    assert items[0]["third_row_seats"] is True
+    assert items[0]["seating_capacity"] == 7
+    assert items[0]["metadata_complete"] is True
 
 
 def test_load_inventory_candidates_prefers_live_cache(monkeypatch, tmp_path):

@@ -7,6 +7,7 @@ import {
   sellingDescriptions,
   uniqueFactoryFeatures,
   vehicleCapabilities,
+  vehiclePowertrain,
 } from './vehicle-intelligence';
 
 const vehicle = {
@@ -16,6 +17,13 @@ const vehicle = {
   drivetrain: 'AWD',
   engine: '3.0L Turbo',
   transmission: '9-Speed Automatic',
+  bodyStyle: 'SUV',
+  fuelType: 'Gasoline',
+  powertrainType: 'Gasoline',
+  mpgCity: 18,
+  mpgHighway: 23,
+  estimatedRangeMiles: 506,
+  fuelTankGallons: 23.8,
   exteriorColor: 'Polar White',
   reconStage: 'Archived',
   reconOpenWork: [],
@@ -51,7 +59,20 @@ const assets = {
       fields: {
         stage: 'Archived',
         workSummary: 'Brake pads replaced',
-        repairOrders: [{ repairOrder: 'RO-1', technician: 'Jordan', workPerformed: ['Brake pads replaced'] }],
+        repairOrders: [{
+          repairOrder: 'RO-1',
+          technician: 'Jordan',
+          workPerformed: ['Brake pads replaced'],
+          lastRepairAt: '07/20/2026 4:30PM',
+          lastRepairTechnician: 'Jordan',
+          lastRepairWork: 'Brake pads replaced',
+          lastServiceAt: '07/20/2026 4:30PM',
+          lastServiceBy: 'Jordan',
+          lastServiceWork: 'Brake pads replaced',
+        }],
+        lastRepairAt: '07/20/2026 4:30PM',
+        lastRepairTechnician: 'Jordan',
+        lastRepairWork: 'Brake pads replaced',
       },
     },
     onemicro: {
@@ -92,5 +113,19 @@ describe('VIN evidence model', () => {
       { key: 'torque', label: 'Torque', value: '369 lb.-ft. @ 1,600RPM' },
     ]);
     expect(sellingDescriptions(vehicle, assets).summary).toContain('Capability:');
+  });
+
+  it('summarizes powertrain, range, fuel tank, and last repair ownership', () => {
+    expect(vehiclePowertrain(vehicle, assets)).toEqual(expect.arrayContaining([
+      { key: 'powertrain', label: 'Powertrain', value: 'Gasoline' },
+      { key: 'range', label: 'Estimated range', value: '506 mi' },
+      { key: 'fuel-tank', label: 'Fuel tank', value: '23.8 gal' },
+    ]));
+    expect(reconDossier(assets, vehicle)).toMatchObject({
+      repairOrderCount: 1,
+      lastRepairTechnician: 'Jordan',
+      lastRepairWork: 'Brake pads replaced',
+    });
+    expect(sellingDescriptions(vehicle, assets).summary).toContain('Latest repair: Brake pads replaced by Jordan');
   });
 });

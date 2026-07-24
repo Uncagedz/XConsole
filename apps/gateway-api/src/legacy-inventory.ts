@@ -97,6 +97,21 @@ function integerValue(value: unknown): number | null {
   return parsed === null ? null : Math.round(parsed);
 }
 
+function booleanValue(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value;
+  const raw = text(value)?.toLowerCase();
+  if (!raw) return null;
+  if (/^(?:true|yes|y|1|standard|available|equipped)$/.test(raw)) return true;
+  if (/^(?:false|no|n|0|none|not available)$/.test(raw)) return false;
+  return null;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? [...new Set(value.map(text).filter((item): item is string => Boolean(item)))]
+    : [];
+}
+
 function isoDate(value: unknown): string | null {
   const raw = text(value);
   if (!raw) return null;
@@ -200,6 +215,24 @@ export function normalizeLegacyVehicle(
     drivetrain: firstText(item, ['drivetrain']),
     engine: firstText(item, ['engine']),
     transmission: firstText(item, ['transmission']),
+    bodyStyle: firstText(item, ['bodyStyle', 'body_style']),
+    fuelType: firstText(item, ['fuelType', 'fuel_type']),
+    powertrainType: firstText(item, ['powertrainType', 'powertrain_type']),
+    mpgCity: numberValue(item.mpgCity ?? item.mpg_city),
+    mpgHighway: numberValue(item.mpgHighway ?? item.mpg_highway ?? item.mpg_hwy),
+    mpgCombined: numberValue(item.mpgCombined ?? item.mpg_combined),
+    estimatedRangeMiles: numberValue(item.estimatedRangeMiles ?? item.estimated_range_miles),
+    electricRangeMiles: numberValue(item.electricRangeMiles ?? item.electric_range_miles),
+    fuelTankGallons: numberValue(item.fuelTankGallons ?? item.fuel_tank_gallons),
+    seatingCapacity: integerValue(item.seatingCapacity ?? item.seating_capacity),
+    thirdRowSeats: booleanValue(item.thirdRowSeats ?? item.third_row_seats),
+    maxTowingCapacity: numberValue(item.maxTowingCapacity ?? item.max_towing_capacity),
+    curbWeight: numberValue(item.curbWeight ?? item.curb_weight),
+    horsepower: numberValue(item.horsepower),
+    torque: numberValue(item.torque),
+    metadataLoadedAt: isoDate(item.metadataLoadedAt ?? item.metadata_loaded_at),
+    metadataComplete: Boolean(item.metadataComplete ?? item.metadata_complete),
+    searchFacts: stringArray(item.searchFacts ?? item.search_facts),
     sourceStatuses: [{
       connectorId: 'dealership-website',
       displayName: 'Dealership Website',

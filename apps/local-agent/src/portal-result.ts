@@ -73,6 +73,80 @@ export function parseReconRepairOrder(summary: string, sourceUrl: string, fallba
   };
 }
 
+export type ReconActivityEvent = {
+  occurredAt: string;
+  actor: string | null;
+  action: 'service' | 'task' | 'assignment' | 'movement' | 'other';
+  description: string;
+  technician: string | null;
+  performedBy: string | null;
+  repair: boolean;
+};
+
+const nonRepairService = /(?:inspection|detail|photos?|wash|clean|close ro|tag key|high level|bypass inspection)/i;
+const repairService = /(?:repair|replace|water pump|engine|drivetrain|transfer case|brake|tire|battery|alignment|body work|paint|glass|warning light|strut|recall|service)/i;
+
+function activityTimestamp(value: string) {
+  const match = value.match(/\b(?:0?[1-9]|1[0-2])\/(?:0?[1-9]|[12]\d|3[01])\/(?:19|20)\d{2}\s+\d{1,2}:\d{2}\s*(?:AM|PM)\b/i);
+  return match?.[0] ?? null;
+}
+
+function activityDate(value: string) {
+  const match = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!match) return Number.NaN;
+  let hour = Number(match[4]);
+  if (match[6]?.toUpperCase() === 'PM' && hour < 12) hour += 12;
+  if (match[6]?.toUpperCase() === 'AM' && hour === 12) hour = 0;
+  return new Date(Number(match[3]), Number(match[1]) - 1, Number(match[2]), hour, Number(match[5])).valueOf();
+}
+
+export function parseReconActivity(summary: string): ReconActivityEvent[] {
+  const rawLines = summary.split(/\r?\n/).map((line) => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const events: ReconActivityEvent[] = [];
+  for (let index = 0; index < rawLines.length; index += 1) {
+    const occurredAt = activityTimestamp(rawLines[index] ?? '');
+    if (!occurredAt) continue;
+    const following = rawLines.slice(index + 1, index + 7);
+    const actionIndex = following.findIndex((line) => (
+      /(?:completed service|completed task|moved Work Order|assigned Job|created Work Order|changed status|reopened)/i.test(line)
+    ));
+    if (actionIndex < 0) continue;
+    const actionText = following[actionIndex]!;
+    const actorCandidate = following.slice(0, actionIndex).find((line) => (
+      /^[A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+){1,3}$/.test(line)
+    )) ?? null;
+    const service = actionText.match(/completed service\s+(.+?)(?:\s+on behalf of\s+(.+?))?\s+for Work Order/i);
+    const task = actionText.match(/completed task\s+(.+?)(?:\s+from|\s+for Work Order|$)/i);
+    const description = clean(service?.[1] ?? task?.[1] ?? actionText) ?? actionText;
+    const behalfOf = clean(service?.[2]);
+    const action: ReconActivityEvent['action'] = service
+      ? 'service'
+      : task
+        ? 'task'
+        : /assigned Job/i.test(actionText)
+          ? 'assignment'
+          : /moved Work Order/i.test(actionText)
+            ? 'movement'
+            : 'other';
+    events.push({
+      occurredAt,
+      actor: actorCandidate,
+      action,
+      description,
+      technician: service ? behalfOf ?? actorCandidate : null,
+      performedBy: actorCandidate,
+      repair: Boolean(service && repairService.test(description) && !nonRepairService.test(description)),
+    });
+  }
+  return events
+    .filter((event, index, all) => all.findIndex((candidate) => (
+      candidate.occurredAt === event.occurredAt
+      && candidate.actor === event.actor
+      && candidate.description === event.description
+    )) === index)
+    .sort((left, right) => activityDate(right.occurredAt) - activityDate(left.occurredAt));
+}
+
 export function parseReconTimeline(summary: string, sourceUrl: string) {
   const rows = summary
     .split(/\r?\n/)
