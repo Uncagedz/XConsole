@@ -60,11 +60,15 @@ function safeSourceUrl(rawUrl: string) {
 async function hasAuthenticationChallenge(page: Page) {
   const password = await page.locator('input[type="password"]:visible').count();
   const verification = await page.locator(
-    'input[autocomplete="one-time-code"]:visible, iframe[src*="captcha" i]:visible, [data-sitekey]:visible',
+    'input[autocomplete="one-time-code"]:visible, iframe[src*="captcha" i]:visible, iframe[src*="challenge" i]:visible, [data-sitekey]:visible, [class*="captcha" i]:visible, [class*="verification" i]:visible',
   ).count();
   const signIn = await page.locator('a[href="/login"]:visible').count();
+  const verificationText = await page.getByText(
+    /verification required|complete verification|slide(?:r)? to verify|security check/i,
+  ).count();
   return password > 0
     || verification > 0
+    || verificationText > 0
     || signIn > 0
     || /(?:login|log-in|sign-in|authenticate|mfa|landingPage)/i.test(new URL(page.url()).pathname);
 }

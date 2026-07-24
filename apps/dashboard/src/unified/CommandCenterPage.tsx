@@ -181,10 +181,12 @@ export function CommandCenterPage() {
 
   useEffect(() => {
     if (!selectedVin || queuedVins.current.has(selectedVin) || connectors.length === 0) return;
-    const connectorIds = connectors
+    const connectorPriority = ['reconvision', 'onemicro', 'carfax'] as const;
+    const enabledConnectorIds = new Set(connectors
       .filter((connector) => connector.enabled && !connector.reauthenticationRequired)
       .filter((connector) => ['reconvision', 'onemicro', 'carfax'].includes(connector.id))
-      .map((connector) => connector.id as 'reconvision' | 'onemicro' | 'carfax');
+      .map((connector) => connector.id));
+    const connectorIds = connectorPriority.filter((connectorId) => enabledConnectorIds.has(connectorId));
     if (!connectorIds.length) return;
     queuedVins.current.add(selectedVin);
     void gateway.lookupVehicleSources(selectedVin, connectorIds)
