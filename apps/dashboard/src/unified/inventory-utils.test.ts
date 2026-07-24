@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Vehicle } from '@drivecentric-ai/shared/xconsole';
-import { filterAndSortInventory, inventoryBreakdown, vehicleTitle } from './inventory-utils';
+import {
+  filterAndSortInventory,
+  inventoryBreakdown,
+  inventorySearchInsight,
+  vehicleTitle,
+} from './inventory-utils';
 
 const vehicles: Vehicle[] = [
   {
@@ -21,6 +26,14 @@ const vehicles: Vehicle[] = [
     daysInStock: 2,
     websiteUrl: 'https://dealer.example/new/NEW-1',
     photos: ['https://dealer.example/photo.jpg'],
+    bodyStyle: 'SUV',
+    fuelType: 'Gasoline',
+    powertrainType: 'Gasoline',
+    drivetrain: '4WD',
+    seatingCapacity: 5,
+    maxTowingCapacity: 5000,
+    metadataComplete: true,
+    searchFacts: ['SUV', '4WD'],
     sourceStatuses: [],
     salesTalkingPoints: [],
     lastSynchronizedAt: '2026-07-23T12:00:00.000Z',
@@ -42,6 +55,15 @@ const vehicles: Vehicle[] = [
     daysInStock: 20,
     websiteUrl: 'https://dealer.example/used/USED-9',
     photos: [],
+    bodyStyle: 'Passenger Van',
+    fuelType: 'Plug-in Hybrid',
+    powertrainType: 'Plug-in Hybrid',
+    drivetrain: 'FWD',
+    seatingCapacity: 7,
+    thirdRowSeats: true,
+    electricRangeMiles: 32,
+    metadataComplete: true,
+    searchFacts: ['third row', 'family van'],
     sourceStatuses: [],
     salesTalkingPoints: [],
     lastSynchronizedAt: '2026-07-22T12:00:00.000Z',
@@ -82,5 +104,18 @@ describe('unified inventory presentation', () => {
       photos: 'all',
       sort: 'ltv-low',
     }).map((vehicle) => vehicle.loanToValue)).toEqual([103.49, 108.46]);
+  });
+
+  it('answers human inventory requests from metadata loaded before selection', () => {
+    expect(filterAndSortInventory(vehicles, {
+      query: 'show me a plug-in hybrid under $30k with third row and 7 seats',
+      condition: 'all',
+      photos: 'all',
+      sort: 'recent',
+    }).map((item) => item.stockNumber)).toEqual(['USED-9']);
+    expect(inventorySearchInsight(vehicles, 'hybrid under $30k with third row')).toMatchObject({
+      active: true,
+      summary: '1 match found from preloaded inventory metadata',
+    });
   });
 });

@@ -4,6 +4,7 @@ import {
   parseCarfaxReport,
   parseOneMicroHistory,
   parseOneMicroKey,
+  parseReconActivity,
   parseReconRepairOrder,
   parseReconStage,
 } from './portal-result.js';
@@ -96,6 +97,41 @@ describe('portal VIN result normalization', () => {
         'Oil and filter service completed',
       ],
     });
+  });
+
+  it('reads the authoritative ReconVision activity feed and separates repairs from admin work', () => {
+    const events = parseReconActivity([
+      '01/24/2026 10:20AM',
+      'Mark Hridin',
+      'completed service Water Pump for Work Order TVC3624015',
+      '01/27/2026 12:50PM',
+      'Juan Cardier',
+      'completed service Body Work - General Repair (body) for Work Order TVC3624015',
+      '01/27/2026 3:49PM',
+      'Sean Childrey',
+      'completed service Photos for Work Order TVC3624015',
+      '01/29/2026 4:06PM',
+      'Julian Hernandez',
+      'completed task Close RO from #3624015',
+    ].join('\n'));
+
+    expect(events[0]).toMatchObject({
+      actor: 'Julian Hernandez',
+      action: 'task',
+      repair: false,
+    });
+    expect(events.filter((event) => event.repair)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        occurredAt: '01/27/2026 12:50PM',
+        technician: 'Juan Cardier',
+        description: 'Body Work - General Repair (body)',
+      }),
+      expect.objectContaining({
+        occurredAt: '01/24/2026 10:20AM',
+        technician: 'Mark Hridin',
+        description: 'Water Pump',
+      }),
+    ]));
   });
 
   it('extracts the last 1Micro key custodian, time, and useful photo', () => {

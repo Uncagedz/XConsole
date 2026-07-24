@@ -8,7 +8,12 @@ import type {
   Vehicle,
 } from '@drivecentric-ai/shared/xconsole';
 import { gateway, type DeviceSummary, type InventoryStatus, type VehicleAssets } from './api';
-import { filterAndSortInventory, inventoryBreakdown, vehicleTitle } from './inventory-utils';
+import {
+  filterAndSortInventory,
+  inventoryBreakdown,
+  inventorySearchInsight,
+  vehicleTitle,
+} from './inventory-utils';
 import type { ShellContext } from './Shell';
 import {
   carfaxDossier,
@@ -17,9 +22,11 @@ import {
   sellingDescriptions,
   uniqueFactoryFeatures,
   vehicleCapabilities,
+  vehiclePowertrain,
 } from './vehicle-intelligence';
 import './command-center.css';
 import './capability.css';
+import './command-center-v2.css';
 
 const terminalJobStates = ['succeeded', 'failed', 'cancelled'];
 const usefulConnectors = new Set([
@@ -222,6 +229,10 @@ export function CommandCenterPage() {
     sort: 'recent',
   }), [condition, inventory, query]);
   const breakdown = useMemo(() => inventoryBreakdown(inventory?.items ?? []), [inventory]);
+  const searchInsight = useMemo(
+    () => inventorySearchInsight(inventory?.items ?? [], query),
+    [inventory, query],
+  );
   const useful = connectors.filter((connector) => usefulConnectors.has(connector.id));
   const connector = (id: string) => connectors.find((item) => item.id === id);
   const job = (id: string) => jobs.find((item) => item.connectorId === id);
@@ -229,7 +240,8 @@ export function CommandCenterPage() {
   const recon = useMemo(() => reconDossier(assets, vehicle), [assets, vehicle]);
   const key = useMemo(() => keyDossier(assets, vehicle), [assets, vehicle]);
   const features = useMemo(() => uniqueFactoryFeatures(assets), [assets]);
-  const capabilities = useMemo(() => vehicleCapabilities(assets), [assets]);
+  const capabilities = useMemo(() => vehicleCapabilities(assets, vehicle), [assets, vehicle]);
+  const powertrain = useMemo(() => vehiclePowertrain(vehicle, assets), [assets, vehicle]);
   const photos = useMemo(
     () => [...new Set([...(assets?.photos ?? []), ...(vehicle?.photos ?? [])])],
     [assets, vehicle],
@@ -266,7 +278,7 @@ export function CommandCenterPage() {
         <div className="mc-brand"><span>X</span><div><strong>XConsole</strong><small>Taverna mission control</small></div></div>
         <label className="mc-global-search">
           <span>⌕</span>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search VIN, stock, make, model, color…" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ask inventory: hybrid SUV under $45k with third row…" />
           <kbd>{filtered.length.toLocaleString()}</kbd>
         </label>
         <div className="mc-system">
@@ -278,6 +290,12 @@ export function CommandCenterPage() {
       </header>
 
       {error && <div className="mc-alert"><strong>Action required</strong><span>{error}</span><button type="button" onClick={() => setError('')}>Dismiss</button></div>}
+      {searchInsight.active && (
+        <div className="mc-search-answer">
+          <strong>{searchInsight.summary}</strong>
+          <div>{searchInsight.criteria.map((criterion) => <span key={criterion}>{criterion}</span>)}</div>
+        </div>
+      )}
 
       <div className="mc-workspace">
         <aside className="mc-inventory">
@@ -301,7 +319,11 @@ export function CommandCenterPage() {
                 <span className="mc-vehicle-label">
                   <strong>{vehicleTitle(item)}</strong>
                   <small>{item.stockNumber ?? 'No stock'} · {item.mileage?.toLocaleString() ?? '—'} mi</small>
-                  <em>{item.loanToValue == null ? 'LTV pending' : `${item.loanToValue.toFixed(1)}% LTV`}</em>
+                  <em>{[
+                    item.powertrainType,
+                    item.bodyStyle,
+                    item.loanToValue == null ? 'LTV pending' : `${item.loanToValue.toFixed(1)}% LTV`,
+                  ].filter(Boolean).join(' · ')}</em>
                 </span>
                 <b>{money(item.retailPrice)}</b>
               </button>
@@ -357,6 +379,13 @@ export function CommandCenterPage() {
               </section>
 
               <div className="mc-grid">
+                <section className="mc-panel mc-powertrain">
+                  <header><div><p className="mc-kicker">POWERTRAIN + RANGE</p><h2>What moves this vehicle</h2></div><span className={`mc-tag ${vehicle.metadataComplete ? 'verified' : ''}`}>{vehicle.metadataComplete ? 'PRELOADED' : 'ENRICHING'}</span></header>
+                  {powertrain.length
+                    ? <div className="mc-powertrain-grid">{powertrain.map((fact) => <div key={fact.key}><span>{fact.label}</span><strong>{fact.value}</strong></div>)}</div>
+                    : <p className="mc-empty">Powertrain metadata is being enriched from the dealer detail page.</p>}
+                </section>
+
                 <section className="mc-panel mc-carfax">
                   <header><div><p className="mc-kicker">OWNERSHIP + RISK</p><h2>CARFAX dealer dossier</h2></div><span className={carfax.dealerVerified ? 'mc-tag verified' : 'mc-tag'}>{carfax.dealerVerified ? 'DEALER VERIFIED' : 'PUBLIC DATA'}</span></header>
                   <div className="mc-fact-grid">
@@ -378,21 +407,44 @@ export function CommandCenterPage() {
 
                 <section className="mc-panel mc-recon">
                   <header><div><p className="mc-kicker">WORK PERFORMED</p><h2>Recon timeline</h2></div><span className="mc-tag">{recon.stage ?? 'PENDING'}</span></header>
-                  {recon.workSummary && <p className="mc-summary">{recon.workSummary}</p>}
+                  <div className="mc-recon-snapshot">
+                    <div><span>Last repair</span><strong>{recon.lastRepairWork ?? 'Not captured'}</strong><small>{recon.lastRepairAt ?? 'No repair date'}</small></div>
+                    <div><span>Repair technician</span><strong>{recon.lastRepairTechnician ?? 'Not captured'}</strong><small>{recon.daysSinceLastRepair == null ? 'Age unavailable' : `${recon.daysSinceLastRepair} days since repair`}</small></div>
+                    <div><span>Last service touch</span><strong>{recon.lastServiceWork ?? 'Not captured'}</strong><small>{[recon.lastServiceBy, recon.lastServiceAt].filter(Boolean).join(' · ') || 'No service event'}</small></div>
+                    <div><span>Repair orders</span><strong>{recon.repairOrderCount}</strong><small>{recon.workSummary ?? 'Timeline captured below'}</small></div>
+                  </div>
                   <div className="mc-timeline">
-                    {recon.orders.length ? recon.orders.map((order, index) => (
+                    {recon.orders.length ? recon.orders.slice(0, 2).map((order, index) => (
                       <article key={`${order.repairOrder}-${index}`}>
                         <span className="mc-timeline-dot" />
                         <div>
                           <small>{order.completedAt ?? order.openedAt ?? 'Time not captured'}</small>
                           <h3>{order.repairOrder ? `RO ${order.repairOrder}` : `Repair order ${index + 1}`}</h3>
                           <p>{[order.department, order.status].filter(Boolean).join(' · ') || 'Department not captured'}</p>
-                          <p className="mc-people">{order.technician ? `Technician: ${order.technician}` : 'Technician not captured'}{order.advisor ? ` · Advisor: ${order.advisor}` : ''}</p>
+                          <p className="mc-people">{order.lastRepairTechnician ? `Last repair tech: ${order.lastRepairTechnician}` : order.technician ? `Technician: ${order.technician}` : 'Technician not captured'}{order.advisor ? ` · Advisor: ${order.advisor}` : ''}</p>
                           {order.workPerformed.length > 0 && <ul>{order.workPerformed.map((item) => <li key={item}>{item}</li>)}</ul>}
                         </div>
                       </article>
                     )) : <p className="mc-empty">{assetsBusy ? 'Reading all repair orders automatically…' : 'No repair-order details have been captured for this VIN yet.'}</p>}
                   </div>
+                  {recon.orders.length > 2 && (
+                    <details className="mc-recon-more">
+                      <summary>View {recon.orders.length - 2} older repair orders</summary>
+                      <div className="mc-timeline">
+                        {recon.orders.slice(2).map((order, index) => (
+                          <article key={`${order.repairOrder}-older-${index}`}>
+                            <span className="mc-timeline-dot" />
+                            <div>
+                              <small>{order.completedAt ?? order.openedAt ?? 'Time not captured'}</small>
+                              <h3>{order.repairOrder ? `RO ${order.repairOrder}` : 'Repair order'}</h3>
+                              <p>{[order.department, order.status].filter(Boolean).join(' · ')}</p>
+                              {order.workPerformed.length > 0 && <ul>{order.workPerformed.map((item) => <li key={item}>{item}</li>)}</ul>}
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                 </section>
 
                 <section className="mc-panel mc-features">
