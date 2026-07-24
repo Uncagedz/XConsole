@@ -208,12 +208,33 @@ export function createApp(env: GatewayEnv, store: GatewayStoreContract = new Gat
   app.get('/api/vehicles/:vin/assets', requireDashboard, asyncRoute(async (request, response) => {
     const vin = vinSchema.parse(request.params.vin);
     const refresh = z.enum(['true', 'false']).default('false').parse(request.query.refresh);
-    response.json(await inventory.vehicleAssets(vin, refresh === 'true'));
+    const assets = await inventory.vehicleAssets(vin, refresh === 'true');
+    const dealerCarfax = await store.getCarfaxSummary?.(vin);
+    if (!dealerCarfax) {
+      response.json(assets);
+      return;
+    }
+    const highlights = dealerCarfax.highlights;
+    response.json({
+      ...assets,
+      carfax_url: dealerCarfax.reportUrl ?? assets.carfax_url,
+      carfax_summary: {
+        summary: highlights.join(' · '),
+        highlights,
+        facts: {
+          owners: dealerCarfax.owners,
+          accidents: dealerCarfax.accidents,
+          service: dealerCarfax.service,
+          source: 'CARFAX for Dealers',
+        },
+        observedAt: dealerCarfax.observedAt,
+      },
+    });
   }));
   app.post('/api/vehicles/:vin/source-lookups', requireDashboard, asyncRoute(async (request, response) => {
     const vin = vinSchema.parse(request.params.vin);
     const payload = z.object({
-      connectorIds: z.array(z.enum(['reconvision', 'onemicro'])).min(1).max(2),
+      connectorIds: z.array(z.enum(['reconvision', 'onemicro', 'carfax'])).min(1).max(3),
     }).strict().parse(request.body);
     const connectorIds = [...new Set(payload.connectorIds)];
     const jobs = [];

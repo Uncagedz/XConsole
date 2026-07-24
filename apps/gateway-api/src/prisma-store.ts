@@ -18,7 +18,7 @@ import type {
   Vehicle,
 } from '@drivecentric-ai/shared';
 import { connectorSeeds } from './seed-data.js';
-import { hashToken, type GatewayStoreContract } from './store.js';
+import { hashToken, type GatewayStoreContract, type StoredCarfaxSummary } from './store.js';
 
 const liveConnectors = new Set([
   'dealership-website',
@@ -26,7 +26,7 @@ const liveConnectors = new Set([
   'drivecentric',
   'routeone-bank-brain',
 ]);
-const recordingConnectors = new Set(['reconvision', 'onemicro']);
+const recordingConnectors = new Set(['reconvision', 'onemicro', 'carfax']);
 
 const executionLocation = {
   [ConnectorExecutionLocation.RAILWAY]: 'railway',
@@ -288,6 +288,23 @@ export class PrismaGatewayStore implements GatewayStoreContract {
 
   async getVehicle(vin: string) {
     return (await this.listVehicles()).find((vehicle) => vehicle.vin === vin.toUpperCase());
+  }
+
+  async getCarfaxSummary(vin: string): Promise<StoredCarfaxSummary | undefined> {
+    const vehicle = await this.prisma.vehicle.findUnique({
+      where: { vin: vin.toUpperCase() },
+      select: { carfaxSummary: true },
+    });
+    const summary = vehicle?.carfaxSummary;
+    if (!summary) return undefined;
+    return {
+      owners: summary.owners,
+      accidents: summary.accidents,
+      service: summary.service,
+      highlights: jsonStringArray(summary.highlights),
+      reportUrl: summary.reportUrl,
+      observedAt: summary.observedAt.toISOString(),
+    };
   }
 
   async upsertVehicles(vehicles: Vehicle[]) {
@@ -582,6 +599,39 @@ export class PrismaGatewayStore implements GatewayStoreContract {
             connectorId: job.connectorId,
             location: typeof fields.location === 'string' ? fields.location : null,
             holder: typeof fields.holder === 'string' ? fields.holder : null,
+            observedAt: finishedAt,
+          },
+        });
+      }
+      if (vehicle && job.connectorId === 'carfax') {
+        const highlights = Array.isArray(fields.highlights)
+          ? fields.highlights.filter((item): item is string => typeof item === 'string')
+          : [];
+        const owners = typeof fields.owners === 'number' && Number.isInteger(fields.owners)
+          ? fields.owners
+          : null;
+        const accidents = typeof fields.accidents === 'number' && Number.isInteger(fields.accidents)
+          ? fields.accidents
+          : null;
+        const service = typeof fields.service === 'string' ? fields.service : null;
+        const reportUrl = typeof fields.reportUrl === 'string' ? fields.reportUrl : null;
+        await this.prisma.carfaxSummary.upsert({
+          where: { vehicleId: vehicle.id },
+          create: {
+            vehicleId: vehicle.id,
+            owners,
+            accidents,
+            service,
+            highlights,
+            reportUrl,
+            observedAt: finishedAt,
+          },
+          update: {
+            owners,
+            accidents,
+            service,
+            highlights,
+            reportUrl,
             observedAt: finishedAt,
           },
         });

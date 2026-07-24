@@ -156,7 +156,7 @@ export const gateway = {
   },
   async lookupVehicleSources(
     vin: string,
-    connectorIds: Array<'reconvision' | 'onemicro'>,
+    connectorIds: Array<'reconvision' | 'onemicro' | 'carfax'>,
   ): Promise<AutomationJob[]> {
     return (await request<{ jobs: AutomationJob[] }>(
       `/api/vehicles/${encodeURIComponent(vin)}/source-lookups`,
