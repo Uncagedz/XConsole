@@ -13,6 +13,8 @@ import {
   inventoryBreakdown,
   inventorySearchInsight,
   vehicleTitle,
+  type InventoryPhotoFilter,
+  type InventorySort,
 } from './inventory-utils';
 import type { ShellContext } from './Shell';
 import {
@@ -97,6 +99,10 @@ export function CommandCenterPage() {
   const [jobs, setJobs] = useState<AutomationJobStatus[]>([]);
   const [query, setQuery] = useState('');
   const [condition, setCondition] = useState<'all' | 'new' | 'used'>('all');
+  const [photoFilter, setPhotoFilter] = useState<InventoryPhotoFilter>('all');
+  const [sort, setSort] = useState<InventorySort>('recent');
+  const [priceRange, setPriceRange] = useState<[number, number]>([0, 0]);
+  const [mileageRange, setMileageRange] = useState<[number, number]>([0, 0]);
   const [syncing, setSyncing] = useState(false);
   const [assetsBusy, setAssetsBusy] = useState(false);
   const [error, setError] = useState('');
@@ -222,12 +228,34 @@ export function CommandCenterPage() {
     return () => window.clearInterval(timer);
   }, [jobs, selectedVin]);
 
+  const priceBounds = useMemo(() => {
+    const values = (inventory?.items ?? []).map((item) => item.retailPrice).filter((value): value is number => value != null && value >= 0);
+    const max = values.length ? Math.ceil(Math.max(...values) / 5_000) * 5_000 : 100_000;
+    return { min: 0, max };
+  }, [inventory]);
+  const mileageBounds = useMemo(() => {
+    const values = (inventory?.items ?? []).map((item) => item.mileage).filter((value): value is number => value != null && value >= 0);
+    const max = values.length ? Math.ceil(Math.max(...values) / 10_000) * 10_000 : 200_000;
+    return { min: 0, max };
+  }, [inventory]);
+  const activePriceRange: [number, number] = [
+    Math.max(priceBounds.min, Math.min(priceRange[0], priceBounds.max)),
+    priceRange[1] > 0 ? Math.min(priceRange[1], priceBounds.max) : priceBounds.max,
+  ];
+  const activeMileageRange: [number, number] = [
+    Math.max(mileageBounds.min, Math.min(mileageRange[0], mileageBounds.max)),
+    mileageRange[1] > 0 ? Math.min(mileageRange[1], mileageBounds.max) : mileageBounds.max,
+  ];
   const filtered = useMemo(() => filterAndSortInventory(inventory?.items ?? [], {
     query,
     condition,
-    photos: 'all',
-    sort: 'recent',
-  }), [condition, inventory, query]);
+    photos: photoFilter,
+    sort,
+    minPrice: activePriceRange[0] > priceBounds.min ? activePriceRange[0] : null,
+    maxPrice: activePriceRange[1] < priceBounds.max ? activePriceRange[1] : null,
+    minMileage: activeMileageRange[0] > mileageBounds.min ? activeMileageRange[0] : null,
+    maxMileage: activeMileageRange[1] < mileageBounds.max ? activeMileageRange[1] : null,
+  }), [activeMileageRange, activePriceRange, condition, inventory, mileageBounds, photoFilter, priceBounds, query, sort]);
   const breakdown = useMemo(() => inventoryBreakdown(inventory?.items ?? []), [inventory]);
   const searchInsight = useMemo(
     () => inventorySearchInsight(inventory?.items ?? [], query),
@@ -311,6 +339,69 @@ export function CommandCenterPage() {
                 {value === 'all' ? 'All' : value === 'new' ? `New ${breakdown.new}` : `Used ${breakdown.used}`}
               </button>
             ))}
+          </div>
+          <div className="mc-filter-deck" aria-label="Inventory filters">
+            <div className="mc-range-filter">
+              <div><span>Price</span><strong>{money(activePriceRange[0])} – {money(activePriceRange[1])}</strong></div>
+              <input
+                aria-label="Minimum price"
+                type="range"
+                min={priceBounds.min}
+                max={priceBounds.max}
+                step={500}
+                value={activePriceRange[0]}
+                onChange={(event) => setPriceRange(([currentMin, currentMax]) => [Math.min(Number(event.target.value), currentMax > 0 ? currentMax : priceBounds.max), currentMax || priceBounds.max])}
+              />
+              <input
+                aria-label="Maximum price"
+                type="range"
+                min={priceBounds.min}
+                max={priceBounds.max}
+                step={500}
+                value={activePriceRange[1]}
+                onChange={(event) => setPriceRange(([currentMin]) => [currentMin, Math.max(Number(event.target.value), currentMin)])}
+              />
+            </div>
+            <div className="mc-range-filter">
+              <div><span>Mileage</span><strong>{activeMileageRange[0].toLocaleString()} – {activeMileageRange[1].toLocaleString()} mi</strong></div>
+              <input
+                aria-label="Minimum mileage"
+                type="range"
+                min={mileageBounds.min}
+                max={mileageBounds.max}
+                step={1_000}
+                value={activeMileageRange[0]}
+                onChange={(event) => setMileageRange(([currentMin, currentMax]) => [Math.min(Number(event.target.value), currentMax > 0 ? currentMax : mileageBounds.max), currentMax || mileageBounds.max])}
+              />
+              <input
+                aria-label="Maximum mileage"
+                type="range"
+                min={mileageBounds.min}
+                max={mileageBounds.max}
+                step={1_000}
+                value={activeMileageRange[1]}
+                onChange={(event) => setMileageRange(([currentMin]) => [currentMin, Math.max(Number(event.target.value), currentMin)])}
+              />
+            </div>
+            <div className="mc-filter-row">
+              <label>Photos
+                <select aria-label="Photo filter" value={photoFilter} onChange={(event) => setPhotoFilter(event.target.value as InventoryPhotoFilter)}>
+                  <option value="all">All</option>
+                  <option value="with-photos">With photos</option>
+                  <option value="needs-photos">Needs photos</option>
+                </select>
+              </label>
+              <label>Sort
+                <select aria-label="Inventory sort" value={sort} onChange={(event) => setSort(event.target.value as InventorySort)}>
+                  <option value="recent">Recently synced</option>
+                  <option value="price-low">Price: low</option>
+                  <option value="price-high">Price: high</option>
+                  <option value="mileage-low">Mileage: low</option>
+                  <option value="ltv-low">LTV: low</option>
+                  <option value="title">Name</option>
+                </select>
+              </label>
+            </div>
           </div>
           <div className="mc-vehicle-list">
             {filtered.slice(0, 160).map((item) => (
@@ -457,7 +548,7 @@ export function CommandCenterPage() {
                 <section className="mc-panel mc-key">
                   <header><div><p className="mc-kicker">KEY CUSTODY</p><h2>1Micro latest activity</h2></div><span className="mc-tag">{key.location ? 'LOCATED' : 'PENDING'}</span></header>
                   <div className="mc-key-layout">
-                    {key.keyImageUrl ? <img src={key.keyImageUrl} alt="Latest 1Micro key record" /> : <div className="mc-key-placeholder">KEY PHOTO<br />NOT CAPTURED</div>}
+                    {key.keyImageUrl ? <img src={key.keyImageUrl} alt={key.lastCheckedOutBy ? `${key.lastCheckedOutBy} 1Micro photo` : 'Latest 1Micro key-holder photo'} /> : <div className="mc-key-placeholder">LAST HOLDER PHOTO<br />NOT CAPTURED</div>}
                     <dl>
                       <dt>Last person</dt><dd>{key.lastCheckedOutBy ?? 'Not captured'}</dd>
                       <dt>Last checkout</dt><dd>{key.lastCheckedOutAt ?? 'Not captured'}</dd>

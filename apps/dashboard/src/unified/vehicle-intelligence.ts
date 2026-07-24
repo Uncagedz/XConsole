@@ -193,7 +193,7 @@ export function uniqueFactoryFeatures(assets: VehicleAssets | null) {
     ...candidates.filter((value) => highValueFeature.test(value) && !genericSpec.test(value)),
     ...candidates.filter((value) => !highValueFeature.test(value) && !genericSpec.test(value)),
   ];
-  return [...new Set(prioritized)].slice(0, 12);
+  return [...new Set(prioritized)].slice(0, 20);
 }
 
 export type CapabilityFact = {
