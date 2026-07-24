@@ -5369,7 +5369,7 @@ def _extract_standard_specs_from_html(html_text: str) -> dict[str, Any]:
         if key not in facts or label.startswith("engine "):
             facts[key] = value
     feature_labels = re.compile(
-        r"(?:feature|equipment|option|package|edition|roof|audio|seat|wheel|assist|camera|navigation|safety|appearance)",
+        r"(?:feature|equipment|option|package|edition)",
         flags=re.IGNORECASE,
     )
     feature_texts.extend(
