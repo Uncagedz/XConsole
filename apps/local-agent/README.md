@@ -24,8 +24,8 @@ page, and press Enter. Review the sanitized output before copying any fixture in
 
 ## Configure ReconVision, 1Micro, or CARFAX for Dealers
 
-Portal credentials are never saved in XConsole or committed to Git. First record
-and review the authorized page, then configure only its URLs and selectors:
+Portal credentials are never committed to Git or sent to Railway. First record
+and review the authorized page, then configure its URLs and selectors:
 
 ```powershell
 $env:XCONSOLE_PORTAL_LOGIN_URL='https://reviewed-login-url'
@@ -53,12 +53,13 @@ Complete login and MFA yourself. Routine `lookup-vin` jobs then reuse the separa
 portal profiles in headless mode. Authentication challenges stop the job and mark
 the connector as requiring reauthentication; they are never bypassed.
 
-For the reviewed ReconVision, 1Micro, and CARFAX login pages, assisted first-time sign-in
-may use `XCONSOLE_PORTAL_USERNAME` and `XCONSOLE_PORTAL_PASSWORD` for that command
-only. They are read from the process environment, submitted directly to the portal,
-and are not written to the agent configuration, logs, Railway, or Git. Clear both
-variables immediately after the command completes. CARFAX MFA remains interactive:
-enter the six-digit code in the visible portal window when prompted.
+For the reviewed ReconVision, 1Micro, and CARFAX login pages, assisted sign-in may
+use `XCONSOLE_PORTAL_USERNAME` and `XCONSOLE_PORTAL_PASSWORD`. The `portal-login`
+command stores them only inside the current Windows user's DPAPI-encrypted Local
+Agent configuration so routine lookups can reauthenticate without putting secrets
+in source control, logs, or Railway. Clear both process variables after the command
+completes. CARFAX MFA and human verification remain interactive: complete them in
+the visible portal window when prompted.
 
 ## Windows startup
 
