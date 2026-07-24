@@ -11,7 +11,14 @@ import type {
   PortalLookupConfig,
 } from './config.js';
 import { failureArtifactsDirectory, portalProfileDirectory } from './paths.js';
-import { normalizePortalFields, parseCarfaxReport, parseReconStage } from './portal-result.js';
+import {
+  normalizePortalFields,
+  parseCarfaxReport,
+  parseOneMicroKey,
+  parseReconRepairOrder,
+  parseReconStage,
+  parseReconTimeline,
+} from './portal-result.js';
 import { sanitizeCapturedHtml } from './sanitize.js';
 
 type FailureArtifacts = {
@@ -210,12 +217,41 @@ async function lookupReconVision(page: Page, portal: PortalLookupConfig, vin: st
   });
   const summary = (await result.innerText()).trim().slice(0, 20_000);
   const stage = parseReconStage(summary);
+  const workOrderLinks = await result.locator('a[href^="/work_orders/"]').evaluateAll((anchors) => (
+    anchors.map((anchor) => ({
+      href: (anchor as HTMLAnchorElement).href,
+      label: (anchor.textContent ?? '').trim(),
+    }))
+  ));
+  const uniqueLinks = [...new Map(workOrderLinks.map((item) => [item.href, item])).values()].slice(0, 12);
+  const repairOrders = [];
+  for (const link of uniqueLinks) {
+    const detailPage = await page.context().newPage();
+    try {
+      await detailPage.goto(link.href, { waitUntil: 'domcontentloaded', timeout: portal.timeoutMs });
+      const detail = (await detailPage.locator('body').innerText()).trim().slice(0, 50_000);
+      repairOrders.push(parseReconRepairOrder(detail, safeSourceUrl(link.href), link.label));
+    } catch {
+      repairOrders.push(parseReconRepairOrder('', safeSourceUrl(link.href), link.label));
+    } finally {
+      await detailPage.close();
+    }
+  }
+  const timeline = repairOrders.length
+    ? repairOrders
+    : parseReconTimeline(summary, safeSourceUrl(page.url()));
+  const completedItems = timeline.flatMap((order) => order.workPerformed);
   return {
     summary,
     fields: {
       stage,
-      openWork: [],
+      openWork: completedItems,
       frontlineReady: stage ? /archived|close ro|frontline/i.test(stage) : null,
+      repairOrders: timeline,
+      timeline,
+      workSummary: completedItems.length
+        ? completedItems.slice(0, 8).join(' · ')
+        : `${timeline.length} repair order${timeline.length === 1 ? '' : 's'} found`,
     },
   };
 }
@@ -234,12 +270,17 @@ async function lookupOneMicro(page: Page, portal: PortalLookupConfig, vin: strin
     timeout: portal.timeoutMs,
   });
   const summary = (await page.locator('body').innerText()).trim().slice(0, 20_000);
+  const imageUrls = await page.locator('img').evaluateAll((images) => images
+    .map((image) => (image as HTMLImageElement).src)
+    .filter(Boolean));
   return {
     summary,
     fields: {
-      location: labeledValue(summary, 'Tag Location') ?? labeledValue(summary, 'Lot Location'),
-      holder: null,
-      lotLocation: labeledValue(summary, 'Lot Location'),
+      ...parseOneMicroKey(summary, imageUrls),
+      location: labeledValue(summary, 'Tag Location')
+        ?? parseOneMicroKey(summary, imageUrls).location,
+      lotLocation: labeledValue(summary, 'Lot Location')
+        ?? parseOneMicroKey(summary, imageUrls).lotLocation,
     },
   };
 }

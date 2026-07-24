@@ -18,7 +18,12 @@ import type {
   Vehicle,
 } from '@drivecentric-ai/shared';
 import { connectorSeeds } from './seed-data.js';
-import { hashToken, type GatewayStoreContract, type StoredCarfaxSummary } from './store.js';
+import {
+  hashToken,
+  type GatewayStoreContract,
+  type StoredCarfaxSummary,
+  type StoredSourceSnapshot,
+} from './store.js';
 
 const liveConnectors = new Set([
   'dealership-website',
@@ -307,6 +312,28 @@ export class PrismaGatewayStore implements GatewayStoreContract {
     };
   }
 
+  async getVehicleSourceSnapshots(vin: string): Promise<StoredSourceSnapshot[]> {
+    const vehicle = await this.prisma.vehicle.findUnique({
+      where: { vin: vin.toUpperCase() },
+      select: {
+        sourceSnapshots: {
+          where: { connectorId: { in: ['reconvision', 'onemicro', 'carfax'] } },
+          orderBy: { observedAt: 'desc' },
+        },
+      },
+    });
+    const latest = new Map<string, StoredSourceSnapshot>();
+    for (const snapshot of vehicle?.sourceSnapshots ?? []) {
+      if (latest.has(snapshot.connectorId)) continue;
+      latest.set(snapshot.connectorId, {
+        connectorId: snapshot.connectorId,
+        payload: jsonRecord(snapshot.payload) as Record<string, unknown>,
+        observedAt: snapshot.observedAt.toISOString(),
+      });
+    }
+    return [...latest.values()];
+  }
+
   async upsertVehicles(vehicles: Vehicle[]) {
     const existing = new Set(
       (await this.prisma.vehicle.findMany({
@@ -575,6 +602,17 @@ export class PrismaGatewayStore implements GatewayStoreContract {
         ? resultRecord.fields as Record<string, unknown>
         : {};
       const vehicle = vin ? await this.prisma.vehicle.findUnique({ where: { vin } }) : null;
+      if (vehicle) {
+        await this.prisma.vehicleSourceSnapshot.create({
+          data: {
+            vehicleId: vehicle.id,
+            connectorId: job.connectorId,
+            sourceKey: typeof resultRecord.sourceUrl === 'string' ? resultRecord.sourceUrl : vin,
+            payload: resultJson,
+            observedAt: finishedAt,
+          },
+        });
+      }
       if (vehicle && job.connectorId === 'reconvision') {
         const openWork = Array.isArray(fields.openWork)
           ? fields.openWork.filter((item): item is string => typeof item === 'string')

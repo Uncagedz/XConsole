@@ -209,9 +209,19 @@ export function createApp(env: GatewayEnv, store: GatewayStoreContract = new Gat
     const vin = vinSchema.parse(request.params.vin);
     const refresh = z.enum(['true', 'false']).default('false').parse(request.query.refresh);
     const assets = await inventory.vehicleAssets(vin, refresh === 'true');
-    const dealerCarfax = await store.getCarfaxSummary?.(vin);
+    const [dealerCarfax, sourceSnapshots = []] = await Promise.all([
+      store.getCarfaxSummary?.(vin),
+      store.getVehicleSourceSnapshots?.(vin),
+    ]);
+    const sourceIntelligence = Object.fromEntries(sourceSnapshots.map((snapshot) => [
+      snapshot.connectorId,
+      {
+        ...snapshot.payload,
+        observedAt: snapshot.observedAt,
+      },
+    ]));
     if (!dealerCarfax) {
-      response.json(assets);
+      response.json({ ...assets, source_intelligence: sourceIntelligence });
       return;
     }
     const highlights = dealerCarfax.highlights;
@@ -229,6 +239,7 @@ export function createApp(env: GatewayEnv, store: GatewayStoreContract = new Gat
         },
         observedAt: dealerCarfax.observedAt,
       },
+      source_intelligence: sourceIntelligence,
     });
   }));
   app.post('/api/vehicles/:vin/source-lookups', requireDashboard, asyncRoute(async (request, response) => {

@@ -43,6 +43,7 @@ const vehicleAssetsSchema = z.object({
   carfax_summary: z.record(z.unknown()).nullable().optional(),
   buyer_profile: z.record(z.unknown()).nullable().optional(),
   marketing_summary: z.array(z.string()).default([]),
+  source_intelligence: z.record(z.record(z.unknown())).default({}),
 }).passthrough();
 export type VehicleAssets = z.infer<typeof vehicleAssetsSchema>;
 const deviceSummarySchema = z.object({

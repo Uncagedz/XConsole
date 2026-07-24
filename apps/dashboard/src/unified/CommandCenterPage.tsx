@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import type {
   AutomationJob,
   AutomationJobStatus,
@@ -8,19 +9,33 @@ import type {
 } from '@drivecentric-ai/shared/xconsole';
 import { gateway, type DeviceSummary, type InventoryStatus, type VehicleAssets } from './api';
 import { filterAndSortInventory, inventoryBreakdown, vehicleTitle } from './inventory-utils';
-import './inventory.css';
+import type { ShellContext } from './Shell';
+import {
+  carfaxDossier,
+  keyDossier,
+  reconDossier,
+  sellingDescriptions,
+  uniqueFactoryFeatures,
+} from './vehicle-intelligence';
 import './command-center.css';
 
 const terminalJobStates = ['succeeded', 'failed', 'cancelled'];
+const usefulConnectors = new Set([
+  'dealership-website',
+  'carfax',
+  'reconvision',
+  'onemicro',
+  'routeone-bank-brain',
+  'drivecentric',
+  'facebook-marketplace',
+]);
 
 function money(value: number | null | undefined) {
-  return value === null || value === undefined
-    ? '—'
-    : new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        maximumFractionDigits: 0,
-      }).format(value);
+  return value == null ? '—' : new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(value);
 }
 
 function jobStatus(job: AutomationJob): AutomationJobStatus {
@@ -40,24 +55,29 @@ function jobStatus(job: AutomationJob): AutomationJobStatus {
   };
 }
 
-function stringList(value: unknown) {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string')
-    : [];
+function ago(value: string | null | undefined, now: Date) {
+  if (!value) return 'not yet verified';
+  const seconds = Math.max(0, Math.floor((now.getTime() - Date.parse(value)) / 1_000));
+  if (seconds < 2) return 'just now';
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3_600) return `${Math.floor(seconds / 60)}m ago`;
+  return new Date(value).toLocaleString();
 }
 
-function carfaxHighlights(assets: VehicleAssets | null) {
-  const summary = assets?.carfax_summary;
-  if (!summary) return [];
-  const highlights = stringList(summary.highlights);
-  if (highlights.length) return highlights;
-  return Object.entries(summary.facts && typeof summary.facts === 'object' ? summary.facts : {})
-    .filter(([, value]) => value !== null && value !== '' && value !== undefined)
-    .slice(0, 6)
-    .map(([key, value]) => `${key.replace(/_/g, ' ')}: ${String(value)}`);
+function statusLabel(connector: ConnectorSummary | undefined, job: AutomationJobStatus | undefined, hasData: boolean) {
+  if (job && !terminalJobStates.includes(job.status)) return 'reading';
+  if (job?.status === 'failed') return 'needs attention';
+  if (hasData) return 'verified';
+  if (!connector?.enabled) return connector?.reauthenticationRequired ? 'login required' : 'not connected';
+  return connector?.currentError ? 'needs attention' : 'waiting';
+}
+
+function copyText(value: string) {
+  return navigator.clipboard.writeText(value);
 }
 
 export function CommandCenterPage() {
+  const { logout } = useOutletContext<ShellContext>();
   const [inventory, setInventory] = useState<InventoryResponse | null>(null);
   const [inventoryStatus, setInventoryStatus] = useState<InventoryStatus | null>(null);
   const [connectors, setConnectors] = useState<ConnectorSummary[]>([]);
@@ -67,18 +87,22 @@ export function CommandCenterPage() {
   const [assets, setAssets] = useState<VehicleAssets | null>(null);
   const [jobs, setJobs] = useState<AutomationJobStatus[]>([]);
   const [query, setQuery] = useState('');
+  const [condition, setCondition] = useState<'all' | 'new' | 'used'>('all');
   const [syncing, setSyncing] = useState(false);
   const [assetsBusy, setAssetsBusy] = useState(false);
   const [error, setError] = useState('');
   const [now, setNow] = useState(new Date());
   const [valuationFile, setValuationFile] = useState<File | null>(null);
   const [valuationCount, setValuationCount] = useState<number | null>(null);
+  const [copied, setCopied] = useState<'summary' | 'detailed' | null>(null);
   const queuedVins = useRef(new Set<string>());
+  const sourceSync = useRef<string | null>(null);
 
   async function loadInventory(sync = false) {
     if (sync) setSyncing(true);
     try {
       const next = await (sync ? gateway.syncInventory() : gateway.inventory());
+      sourceSync.current = next.source.synchronizedAt;
       setInventory(next);
       setError('');
     } catch (value) {
@@ -96,23 +120,28 @@ export function CommandCenterPage() {
       gateway.devices(),
       gateway.valuationStatus().catch(() => null),
     ]).then(([nextInventory, nextStatus, nextConnectors, nextDevices, valuation]) => {
+      sourceSync.current = nextInventory.source.synchronizedAt;
       setInventory(nextInventory);
       setInventoryStatus(nextStatus);
       setConnectors(nextConnectors);
       setDevices(nextDevices);
       setValuationCount(valuation?.count ?? null);
-      const initialVehicle = nextInventory.items.find((item) => item.retailPrice !== null)
-        ?? nextInventory.items[0];
+      const firstComplete = nextInventory.items.find((item) => item.retailPrice != null && item.photos.length > 0);
+      const initialVehicle = firstComplete ?? nextInventory.items[0];
       if (initialVehicle) setSelectedVin(initialVehicle.vin);
     }).catch((value) => setError(value instanceof Error ? value.message : String(value)));
-    const inventoryTimer = window.setInterval(() => void loadInventory(), 10_000);
-    const clockTimer = window.setInterval(() => {
+
+    const statusTimer = window.setInterval(() => {
       setNow(new Date());
-      void gateway.inventoryStatus().then(setInventoryStatus).catch(() => undefined);
+      void gateway.inventoryStatus().then((nextStatus) => {
+        setInventoryStatus(nextStatus);
+        if (nextStatus.source.synchronizedAt !== sourceSync.current) void loadInventory();
+      }).catch(() => undefined);
     }, 1_000);
+    const safetyRefresh = window.setInterval(() => void loadInventory(), 10_000);
     return () => {
-      window.clearInterval(inventoryTimer);
-      window.clearInterval(clockTimer);
+      window.clearInterval(statusTimer);
+      window.clearInterval(safetyRefresh);
     };
   }, []);
 
@@ -123,13 +152,14 @@ export function CommandCenterPage() {
     setJobs([]);
     setAssetsBusy(true);
     let active = true;
-    void gateway.vehicle(selectedVin).then((nextVehicle) => {
-      if (active) setVehicle(nextVehicle);
-    }).catch((value) => {
-      if (active) setError(value instanceof Error ? value.message : String(value));
-    });
-    void gateway.vehicleAssets(selectedVin, true).then((nextAssets) => {
-      if (active) setAssets(nextAssets);
+    void Promise.all([
+      gateway.vehicle(selectedVin),
+      gateway.vehicleAssets(selectedVin, true),
+    ]).then(([nextVehicle, nextAssets]) => {
+      if (!active) return;
+      setVehicle(nextVehicle);
+      setAssets(nextAssets);
+      setError('');
     }).catch((value) => {
       if (active) setError(value instanceof Error ? value.message : String(value));
     }).finally(() => {
@@ -143,7 +173,8 @@ export function CommandCenterPage() {
   useEffect(() => {
     if (!selectedVin || queuedVins.current.has(selectedVin) || connectors.length === 0) return;
     const connectorIds = connectors
-      .filter((connector) => connector.enabled && ['reconvision', 'onemicro', 'carfax'].includes(connector.id))
+      .filter((connector) => connector.enabled && !connector.reauthenticationRequired)
+      .filter((connector) => ['reconvision', 'onemicro', 'carfax'].includes(connector.id))
       .map((connector) => connector.id as 'reconvision' | 'onemicro' | 'carfax');
     if (!connectorIds.length) return;
     queuedVins.current.add(selectedVin);
@@ -175,16 +206,20 @@ export function CommandCenterPage() {
 
   const filtered = useMemo(() => filterAndSortInventory(inventory?.items ?? [], {
     query,
-    condition: 'all',
+    condition,
     photos: 'all',
     sort: 'recent',
-  }), [inventory, query]);
+  }), [condition, inventory, query]);
   const breakdown = useMemo(() => inventoryBreakdown(inventory?.items ?? []), [inventory]);
-  const attention = connectors.filter((connector) => connector.currentError || connector.reauthenticationRequired);
-  const carfax = carfaxHighlights(assets);
-  const carfaxJob = jobs.find((job) => job.connectorId === 'carfax');
-  const reconJob = jobs.find((job) => job.connectorId === 'reconvision');
-  const oneMicroJob = jobs.find((job) => job.connectorId === 'onemicro');
+  const useful = connectors.filter((connector) => usefulConnectors.has(connector.id));
+  const connector = (id: string) => connectors.find((item) => item.id === id);
+  const job = (id: string) => jobs.find((item) => item.connectorId === id);
+  const carfax = useMemo(() => carfaxDossier(assets), [assets]);
+  const recon = useMemo(() => reconDossier(assets, vehicle), [assets, vehicle]);
+  const key = useMemo(() => keyDossier(assets, vehicle), [assets, vehicle]);
+  const features = useMemo(() => uniqueFactoryFeatures(assets), [assets]);
+  const copy = useMemo(() => sellingDescriptions(vehicle, assets), [assets, vehicle]);
+  const sourceAge = ago(inventoryStatus?.source.synchronizedAt ?? inventory?.source.synchronizedAt, now);
 
   async function uploadValuation() {
     if (!valuationFile) return;
@@ -192,6 +227,12 @@ export function CommandCenterPage() {
     setValuationCount(result.count);
     setValuationFile(null);
     await loadInventory();
+  }
+
+  async function handleCopy(kind: 'summary' | 'detailed') {
+    await copyText(copy[kind]);
+    setCopied(kind);
+    window.setTimeout(() => setCopied(null), 1_500);
   }
 
   function openMessenger() {
@@ -203,116 +244,177 @@ export function CommandCenterPage() {
   }
 
   return (
-    <div className="ux-page ux-command-center">
-      <section id="overview" className="ux-command-hero">
-        <div>
-          <p className="ux-eyebrow">Taverna dealership operating system</p>
-          <h1>Live command center</h1>
-          <p>Inventory, VIN intelligence, LTV, connectors, and customer messaging in one continuous workspace.</p>
+    <div className="mc-shell">
+      <header className="mc-topbar">
+        <div className="mc-brand"><span>X</span><div><strong>XConsole</strong><small>Taverna mission control</small></div></div>
+        <label className="mc-global-search">
+          <span>⌕</span>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search VIN, stock, make, model, color…" />
+          <kbd>{filtered.length.toLocaleString()}</kbd>
+        </label>
+        <div className="mc-system">
+          <span className={`mc-signal ${inventory?.source.live && !inventory.source.stale ? 'on' : 'warn'}`} />
+          <div><strong>{inventory?.source.live ? 'LIVE SOURCE' : 'SAFE CACHE'}</strong><small>verified {sourceAge}</small></div>
+          <time>{now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>
+          <button type="button" onClick={() => void logout()}>Sign out</button>
         </div>
-        <div className="ux-live-clock">
-          <span className="ux-live-dot" />
-          <strong>{now.toLocaleTimeString()}</strong>
-          <small>status clock · updates every second</small>
-        </div>
-      </section>
+      </header>
 
-      {error && <div className="ux-warning"><strong>Workspace notice</strong><span>{error}</span></div>}
+      {error && <div className="mc-alert"><strong>Action required</strong><span>{error}</span><button type="button" onClick={() => setError('')}>Dismiss</button></div>}
 
-      <section className="ux-metrics ux-command-metrics">
-        <article><span>Active inventory</span><strong>{(inventoryStatus?.activeCount ?? inventory?.activeCount)?.toLocaleString() ?? '—'}</strong><small>{inventoryStatus?.inTransitCount ?? inventory?.inTransitCount ?? 0} in transit</small></article>
-        <article><span>New / used</span><strong>{breakdown.new} / {breakdown.used}</strong><small>full view refreshes every 10 seconds</small></article>
-        <article><span>Healthy connectors</span><strong>{connectors.filter((item) => item.enabled && !item.currentError).length}</strong><small>{attention.length} need attention</small></article>
-        <article><span>JD Power values</span><strong>{valuationCount?.toLocaleString() ?? '—'}</strong><small>VIN-matched for Cox/LTV workflow</small></article>
-      </section>
-
-      <section id="inventory" className="ux-section-block">
-        <div className="ux-section-heading">
-          <div><p className="ux-eyebrow">Website inventory</p><h2>Live inventory</h2></div>
-          <div className="ux-actions">
-            <button type="button" onClick={() => void loadInventory()} disabled={syncing}>Refresh view</button>
-            <button className="primary" type="button" onClick={() => void loadInventory(true)} disabled={syncing || !inventory?.source.configured}>{syncing ? 'Synchronizing…' : 'Sync source now'}</button>
-          </div>
-        </div>
-        <div className={`ux-source-banner ${inventory?.source.live ? 'is-live' : 'is-fallback'} ${inventory?.source.stale ? 'is-stale' : ''}`}>
-          <div><span className="ux-live-dot" /><div><strong>{inventoryStatus?.source.label ?? inventory?.source.label ?? 'Loading source'}</strong><small>Source cache refreshes every 60 seconds · last source sync {(inventoryStatus?.source.synchronizedAt ?? inventory?.source.synchronizedAt) ? new Date((inventoryStatus?.source.synchronizedAt ?? inventory?.source.synchronizedAt)!).toLocaleString() : 'pending'}</small></div></div>
-        </div>
-        <label className="ux-command-search"><span>Search and select a vehicle</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="VIN, stock, make, model, color…" /></label>
-        <div className="ux-command-inventory">
-          {filtered.slice(0, 80).map((item) => (
-            <button className={selectedVin === item.vin ? 'selected' : ''} type="button" key={item.vin} onClick={() => {
-              setSelectedVin(item.vin);
-              window.location.hash = 'vehicle';
-            }}>
-              {item.photos[0] ? <img src={item.photos[0]} alt="" loading="lazy" /> : <span className="ux-mini-photo">No photo</span>}
-              <span><strong>{vehicleTitle(item)}</strong><small>{item.stockNumber ?? 'No stock'} · {item.vin}</small></span>
-              <b>{money(item.retailPrice)}</b>
+      <div className="mc-workspace">
+        <aside className="mc-inventory">
+          <div className="mc-rail-head">
+            <div><span>LIVE INVENTORY</span><strong>{(inventory?.activeCount ?? 0).toLocaleString()}</strong></div>
+            <button type="button" onClick={() => void loadInventory(true)} disabled={syncing}>
+              {syncing ? 'Syncing…' : 'Sync'}
             </button>
-          ))}
-        </div>
-      </section>
+          </div>
+          <div className="mc-segments">
+            {(['all', 'new', 'used'] as const).map((value) => (
+              <button key={value} className={condition === value ? 'active' : ''} onClick={() => setCondition(value)} type="button">
+                {value === 'all' ? 'All' : value === 'new' ? `New ${breakdown.new}` : `Used ${breakdown.used}`}
+              </button>
+            ))}
+          </div>
+          <div className="mc-vehicle-list">
+            {filtered.slice(0, 160).map((item) => (
+              <button className={selectedVin === item.vin ? 'selected' : ''} type="button" key={item.vin} onClick={() => setSelectedVin(item.vin)}>
+                {item.photos[0] ? <img src={item.photos[0]} alt="" loading="lazy" /> : <span className="mc-no-photo">NO PHOTO</span>}
+                <span className="mc-vehicle-label">
+                  <strong>{vehicleTitle(item)}</strong>
+                  <small>{item.stockNumber ?? 'No stock'} · {item.mileage?.toLocaleString() ?? '—'} mi</small>
+                  <em>{item.loanToValue == null ? 'LTV pending' : `${item.loanToValue.toFixed(1)}% LTV`}</em>
+                </span>
+                <b>{money(item.retailPrice)}</b>
+              </button>
+            ))}
+            {filtered.length === 0 && <p className="mc-empty">No live vehicles match this search.</p>}
+          </div>
+        </aside>
 
-      <section id="vehicle" className="ux-section-block">
-        <div className="ux-section-heading"><div><p className="ux-eyebrow">Selected VIN</p><h2>{vehicle ? vehicleTitle(vehicle) : selectedVin || 'Select a vehicle'}</h2></div>{vehicle?.websiteUrl && <a className="ux-primary-link" href={vehicle.websiteUrl} target="_blank" rel="noreferrer">Dealer listing ↗</a>}</div>
-        {vehicle && <div className="ux-command-vehicle">
-          <div>{vehicle.photos[0] ? <img src={vehicle.photos[0]} alt={vehicleTitle(vehicle)} /> : <div className="ux-photo-empty">No website photo</div>}</div>
-          <dl>
-            <dt>VIN</dt><dd>{vehicle.vin}</dd>
-            <dt>Stock</dt><dd>{vehicle.stockNumber ?? '—'}</dd>
-            <dt>Retail</dt><dd>{money(vehicle.retailPrice)}</dd>
-            <dt>Mileage</dt><dd>{vehicle.mileage?.toLocaleString() ?? '—'}</dd>
-            <dt>JD Power trade</dt><dd>{money(vehicle.jdPowerTradeIn)}</dd>
-            <dt>LTV basis</dt><dd>{money(vehicle.ltvBasis)}</dd>
-            <dt>Loan to value</dt><dd>{vehicle.loanToValue == null ? '—' : `${vehicle.loanToValue.toFixed(2)}%`}</dd>
-            <dt>Recon stage</dt><dd>{vehicle.reconStage ?? 'Loading automatically'}</dd>
-            <dt>1Micro key</dt><dd>{vehicle.keyLocation ?? 'Loading automatically'}</dd>
-          </dl>
-        </div>}
-      </section>
+        <main className="mc-dossier">
+          {!vehicle ? <div className="mc-loading">Loading selected VIN evidence…</div> : (
+            <>
+              <section className="mc-vehicle-hero">
+                <div className="mc-hero-photo">
+                  {vehicle.photos[0] ? <img src={vehicle.photos[0]} alt={vehicleTitle(vehicle)} /> : <div>Photo pending</div>}
+                  <span>{vehicle.photos.length} PHOTOS</span>
+                </div>
+                <div className="mc-hero-copy">
+                  <p className="mc-kicker">{vehicle.condition ?? 'inventory'} · Stock {vehicle.stockNumber ?? '—'}</p>
+                  <h1>{vehicleTitle(vehicle)}</h1>
+                  <p className="mc-vin">{vehicle.vin}</p>
+                  <div className="mc-hero-stats">
+                    <div><span>Retail</span><strong>{money(vehicle.retailPrice)}</strong></div>
+                    <div><span>Mileage</span><strong>{vehicle.mileage?.toLocaleString() ?? '—'}</strong></div>
+                    <div><span>JD Power</span><strong>{money(vehicle.jdPowerTradeIn)}</strong></div>
+                    <div className={(vehicle.loanToValue ?? 999) <= 100 ? 'good' : 'warn'}><span>Loan to value</span><strong>{vehicle.loanToValue == null ? '—' : `${vehicle.loanToValue.toFixed(2)}%`}</strong></div>
+                  </div>
+                  <div className="mc-hero-actions">
+                    {vehicle.websiteUrl && <a href={vehicle.websiteUrl} target="_blank" rel="noreferrer">Dealer listing ↗</a>}
+                    <button type="button" onClick={openMessenger}>Messenger ↗</button>
+                  </div>
+                </div>
+              </section>
 
-      <section id="intelligence" className="ux-section-block">
-        <div className="ux-section-heading"><div><p className="ux-eyebrow">Automatic reads</p><h2>VIN intelligence</h2></div><span className="ux-pill">{assetsBusy ? 'Loading all sources…' : 'Automatic'}</span></div>
-        <div className="ux-intelligence-grid">
-          <article>
-            <header><strong>CARFAX</strong><span className="ux-pill">{assets?.carfax_url ? 'available' : carfaxJob?.status ?? (assetsBusy ? 'loading' : 'not linked')}</span></header>
-            {carfax.length ? <ul>{carfax.slice(0, 6).map((item) => <li key={item}>{item}</li>)}</ul> : <p>{assetsBusy || (carfaxJob && !terminalJobStates.includes(carfaxJob.status)) ? 'Reading CARFAX for Dealers automatically…' : 'No dealership report was found.'}</p>}
-            {assets?.carfax_url && <a href={assets.carfax_url} target="_blank" rel="noreferrer">Open CARFAX report ↗</a>}
-          </article>
-          <article>
-            <header><strong>Window sticker</strong><span className="ux-pill">{assets?.sticker_url ? 'available' : assetsBusy ? 'loading' : 'not linked'}</span></header>
-            {assets?.sticker_highlights.length ? <ul>{assets.sticker_highlights.slice(0, 6).map((item) => <li key={item}>{item}</li>)}</ul> : <p>{assetsBusy ? 'Reading the window sticker…' : 'No sticker was found for this VIN.'}</p>}
-            {assets?.sticker_url && <a href={assets.sticker_url} target="_blank" rel="noreferrer">Open window sticker ↗</a>}
-          </article>
-          <article>
-            <header><strong>ReconVision</strong><span className="ux-pill">{reconJob?.status ?? (vehicle?.reconStage ? 'ready' : 'waiting')}</span></header>
-            <p>{vehicle?.reconStage ? `Stage: ${vehicle.reconStage}` : typeof reconJob?.result?.summary === 'string' ? reconJob.result.summary : 'Automatically queued through the Windows Local Agent.'}</p>
-          </article>
-          <article>
-            <header><strong>1Micro</strong><span className="ux-pill">{oneMicroJob?.status ?? (vehicle?.keyLocation ? 'ready' : 'waiting')}</span></header>
-            <p>{vehicle?.keyLocation ? `Key location: ${vehicle.keyLocation}` : typeof oneMicroJob?.result?.summary === 'string' ? oneMicroJob.result.summary : 'Automatically queued through the Windows Local Agent.'}</p>
-          </article>
-        </div>
-      </section>
+              <section className="mc-readiness">
+                <article><span className="mc-signal on" /><div><small>INVENTORY</small><strong>Live listing</strong></div><em>{sourceAge}</em></article>
+                <article><span className={`mc-signal ${carfax.highlights.length ? 'on' : 'warn'}`} /><div><small>CARFAX</small><strong>{statusLabel(connector('carfax'), job('carfax'), carfax.highlights.length > 0)}</strong></div><em>{ago(carfax.observedAt, now)}</em></article>
+                <article><span className={`mc-signal ${recon.stage ? 'on' : 'warn'}`} /><div><small>RECONVISION</small><strong>{statusLabel(connector('reconvision'), job('reconvision'), Boolean(recon.stage))}</strong></div><em>{ago(recon.observedAt, now)}</em></article>
+                <article><span className={`mc-signal ${key.location ? 'on' : 'warn'}`} /><div><small>1MICRO</small><strong>{statusLabel(connector('onemicro'), job('onemicro'), Boolean(key.location))}</strong></div><em>{ago(key.observedAt, now)}</em></article>
+                <article><span className={`mc-signal ${assets?.sticker_url || features.length ? 'on' : 'warn'}`} /><div><small>FACTORY DATA</small><strong>{features.length ? 'verified' : assetsBusy ? 'reading' : 'not found'}</strong></div><em>{assets?.loaded_at ? ago(assets.loaded_at, now) : 'automatic'}</em></article>
+              </section>
 
-      <section id="bank-brain" className="ux-section-block">
-        <div className="ux-section-heading"><div><p className="ux-eyebrow">Cox Automotive workflow</p><h2>JD Power LTV</h2></div></div>
-        <p>VINs from the JD Power workbook are matched automatically. LTV uses the stored trade-in value and the configured deal basis.</p>
-        <div className="ux-actions">
-          <input type="file" accept=".xls,.xlsx,.xlsm" onChange={(event) => setValuationFile(event.target.files?.[0] ?? null)} />
-          <button className="primary" type="button" disabled={!valuationFile} onClick={() => void uploadValuation()}>Load JD Power values</button>
-        </div>
-      </section>
+              <div className="mc-grid">
+                <section className="mc-panel mc-carfax">
+                  <header><div><p className="mc-kicker">OWNERSHIP + RISK</p><h2>CARFAX dealer dossier</h2></div><span className={carfax.dealerVerified ? 'mc-tag verified' : 'mc-tag'}>{carfax.dealerVerified ? 'DEALER VERIFIED' : 'PUBLIC DATA'}</span></header>
+                  <div className="mc-fact-grid">
+                    <div><span>Owners</span><strong>{carfax.owners ?? '—'}</strong></div>
+                    <div><span>Last owned</span><strong>{carfax.lastOwnedState ?? '—'}</strong></div>
+                    <div><span>Use</span><strong>{carfax.usage ?? '—'}</strong></div>
+                    <div><span>Service records</span><strong>{carfax.serviceRecords ?? carfax.service ?? '—'}</strong></div>
+                    <div><span>Accident events</span><strong>{carfax.accidents ?? '—'}</strong></div>
+                    <div><span>CARFAX value</span><strong>{money(carfax.carfaxValue)}</strong></div>
+                    <div><span>Warranty</span><strong>{carfax.warranty ?? 'Not stated'}</strong></div>
+                    <div><span>Title</span><strong>{carfax.titleStatus ?? 'Not stated'}</strong></div>
+                  </div>
+                  <ul className="mc-check-list">
+                    {carfax.highlights.slice(0, 10).map((item) => <li key={item}>{item}</li>)}
+                  </ul>
+                  {carfax.accidentHistory.length > 0 && <div className="mc-subsection"><h3>Reported events</h3>{carfax.accidentHistory.map((event, index) => <p key={`${event.date}-${index}`}><time>{event.date ?? 'Date not shown'}</time>{event.detail}</p>)}</div>}
+                  {carfax.reportUrl && <a className="mc-text-link" href={carfax.reportUrl} target="_blank" rel="noreferrer">Open complete dealer report ↗</a>}
+                </section>
 
-      <section id="connectors" className="ux-section-block">
-        <div className="ux-section-heading"><div><p className="ux-eyebrow">Cloud + Windows agent</p><h2>Connector health</h2></div></div>
-        <div className="ux-connector-grid">{connectors.map((connector) => <article className={`ux-connector ${connector.currentError ? 'error' : ''}`} key={connector.id}><div><span className={`ux-dot ${connector.enabled ? 'on' : ''}`} /><div><strong>{connector.displayName}</strong><small>{connector.executionLocation} · {connector.mode}</small></div><span className="ux-pill">{connector.enabled ? connector.authenticationStatus : 'disabled'}</span></div><p>{connector.currentError ?? (connector.enabled ? 'Healthy' : 'Available when configured')}</p></article>)}</div>
-        <p className="ux-muted">{devices.length ? `${devices.length} Windows Local Agent device${devices.length === 1 ? '' : 's'} registered.` : 'No Windows Local Agent heartbeat has been received yet.'}</p>
-      </section>
+                <section className="mc-panel mc-recon">
+                  <header><div><p className="mc-kicker">WORK PERFORMED</p><h2>Recon timeline</h2></div><span className="mc-tag">{recon.stage ?? 'PENDING'}</span></header>
+                  {recon.workSummary && <p className="mc-summary">{recon.workSummary}</p>}
+                  <div className="mc-timeline">
+                    {recon.orders.length ? recon.orders.map((order, index) => (
+                      <article key={`${order.repairOrder}-${index}`}>
+                        <span className="mc-timeline-dot" />
+                        <div>
+                          <small>{order.completedAt ?? order.openedAt ?? 'Time not captured'}</small>
+                          <h3>{order.repairOrder ? `RO ${order.repairOrder}` : `Repair order ${index + 1}`}</h3>
+                          <p>{[order.department, order.status].filter(Boolean).join(' · ') || 'Department not captured'}</p>
+                          <p className="mc-people">{order.technician ? `Technician: ${order.technician}` : 'Technician not captured'}{order.advisor ? ` · Advisor: ${order.advisor}` : ''}</p>
+                          {order.workPerformed.length > 0 && <ul>{order.workPerformed.map((item) => <li key={item}>{item}</li>)}</ul>}
+                        </div>
+                      </article>
+                    )) : <p className="mc-empty">{assetsBusy ? 'Reading all repair orders automatically…' : 'No repair-order details have been captured for this VIN yet.'}</p>}
+                  </div>
+                </section>
 
-      <section id="messenger" className="ux-section-block ux-messenger-strip">
-        <div><p className="ux-eyebrow">Customer conversations</p><h2>Messenger workspace</h2><p>Use the same signed-in browser session in a reusable side window. XConsole never receives the Facebook password.</p></div>
-        <button className="primary" type="button" onClick={openMessenger}>Open Messenger</button>
-      </section>
+                <section className="mc-panel mc-features">
+                  <header><div><p className="mc-kicker">WHY THIS ONE</p><h2>Standout factory equipment</h2></div>{assets?.sticker_url && <a className="mc-tag" href={assets.sticker_url} target="_blank" rel="noreferrer">STICKER ↗</a>}</header>
+                  {features.length ? <ol>{features.map((feature, index) => <li key={feature}><b>{String(index + 1).padStart(2, '0')}</b><span>{feature}</span></li>)}</ol> : <p className="mc-empty">{assetsBusy ? 'Reading equipment and packages…' : 'No factory sticker or differentiated option data was found.'}</p>}
+                </section>
+
+                <section className="mc-panel mc-key">
+                  <header><div><p className="mc-kicker">KEY CUSTODY</p><h2>1Micro latest activity</h2></div><span className="mc-tag">{key.location ? 'LOCATED' : 'PENDING'}</span></header>
+                  <div className="mc-key-layout">
+                    {key.keyImageUrl ? <img src={key.keyImageUrl} alt="Latest 1Micro key record" /> : <div className="mc-key-placeholder">KEY PHOTO<br />NOT CAPTURED</div>}
+                    <dl>
+                      <dt>Last person</dt><dd>{key.lastCheckedOutBy ?? 'Not captured'}</dd>
+                      <dt>Last checkout</dt><dd>{key.lastCheckedOutAt ?? 'Not captured'}</dd>
+                      <dt>Tag location</dt><dd>{key.location ?? 'Not captured'}</dd>
+                      <dt>Lot</dt><dd>{key.lotLocation ?? 'Not captured'}</dd>
+                    </dl>
+                  </div>
+                </section>
+
+                <section className="mc-panel mc-selling">
+                  <header><div><p className="mc-kicker">EVIDENCE-BASED COPY</p><h2>Ready-to-use selling description</h2></div></header>
+                  <div className="mc-copy-block">
+                    <div><h3>Summary</h3><button type="button" onClick={() => void handleCopy('summary')}>{copied === 'summary' ? 'Copied' : 'Copy'}</button></div>
+                    <p>{copy.summary || 'Waiting for verified vehicle details…'}</p>
+                  </div>
+                  <div className="mc-copy-block detailed">
+                    <div><h3>Detailed listing</h3><button type="button" onClick={() => void handleCopy('detailed')}>{copied === 'detailed' ? 'Copied' : 'Copy'}</button></div>
+                    <p>{copy.detailed || 'Waiting for verified vehicle details…'}</p>
+                  </div>
+                </section>
+
+                <section className="mc-panel mc-finance">
+                  <header><div><p className="mc-kicker">COX AUTOMOTIVE</p><h2>JD Power / LTV</h2></div><span className="mc-tag verified">{valuationCount?.toLocaleString() ?? '—'} VALUES</span></header>
+                  <div className="mc-finance-meter">
+                    <div><span>Retail price</span><strong>{money(vehicle.retailPrice)}</strong></div>
+                    <div><span>JD Power trade</span><strong>{money(vehicle.jdPowerTradeIn)}</strong></div>
+                    <div><span>LTV basis</span><strong>{money(vehicle.ltvBasis)}</strong></div>
+                    <div><span>Calculated LTV</span><strong>{vehicle.loanToValue == null ? '—' : `${vehicle.loanToValue.toFixed(2)}%`}</strong></div>
+                  </div>
+                  <div className="mc-upload"><input type="file" accept=".xls,.xlsx,.xlsm" onChange={(event) => setValuationFile(event.target.files?.[0] ?? null)} /><button type="button" disabled={!valuationFile} onClick={() => void uploadValuation()}>Import values</button></div>
+                </section>
+              </div>
+
+              <details className="mc-systems">
+                <summary><span>System evidence</span><strong>{useful.filter((item) => item.enabled && !item.currentError).length}/{useful.length} operational</strong><em>{devices.length} Windows agent{devices.length === 1 ? '' : 's'}</em></summary>
+                <div>{useful.map((item) => <article key={item.id}><span className={`mc-signal ${item.enabled && !item.currentError ? 'on' : 'warn'}`} /><div><strong>{item.displayName}</strong><small>{item.currentError ?? (item.enabled ? `${item.authenticationStatus} · ${item.executionLocation}` : 'Not configured')}</small></div></article>)}</div>
+              </details>
+            </>
+          )}
+        </main>
+      </div>
     </div>
   );
 }
