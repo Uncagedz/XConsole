@@ -158,11 +158,18 @@ export function createApp(env: GatewayEnv, store: GatewayStoreContract = new Gat
     response.json(await inventory.status());
   }));
   app.post('/api/inventory/sync-live', requireDashboard, asyncRoute(async (request, response) => {
-    response.json(await inventory.sync({
+    void inventory.sync({
       sourceUrl: request.body?.sourceUrl,
-      timeoutSeconds: request.body?.timeoutSeconds,
+      timeoutSeconds: request.body?.timeoutSeconds ?? 300,
       persist: request.body?.persist,
-    }));
+    }).catch((error: unknown) => {
+      process.stderr.write(`${JSON.stringify({
+        level: 'warn',
+        event: 'inventory.manual_sync_failed',
+        message: error instanceof Error ? error.message : 'Unknown inventory synchronization error',
+      })}\n`);
+    });
+    response.status(202).json(await inventory.list());
   }));
   app.get('/api/bank-brain/valuations/status', requireDashboard, asyncRoute(async (_request, response) => {
     response.json(await inventory.valuationStatus());
