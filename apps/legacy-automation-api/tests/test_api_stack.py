@@ -560,7 +560,8 @@ def test_merge_cached_vehicle_assets_prefers_cached_photos(monkeypatch, tmp_path
             '  "vin": "2C4RC1BG9TR191376",\n'
             '  "photos": ["https://example.com/full-1.jpg", "https://example.com/full-2.jpg"],\n'
             '  "sticker_url": "https://example.com/sticker",\n'
-            '  "carfax_url": "https://example.com/carfax"\n'
+            '  "carfax_url": "https://example.com/carfax",\n'
+            '  "quick_specs": {"mileage": 74629, "stock_number": "NV946662"}\n'
             "}\n"
         ),
         encoding="utf-8",
@@ -571,6 +572,7 @@ def test_merge_cached_vehicle_assets_prefers_cached_photos(monkeypatch, tmp_path
             {
                 "vin": "2C4RC1BG9TR191376",
                 "title": "Vehicle",
+                "mileage": 74,
                 "photos": ["https://example.com/thumb.jpg"],
             }
         ]
@@ -578,6 +580,8 @@ def test_merge_cached_vehicle_assets_prefers_cached_photos(monkeypatch, tmp_path
     assert items[0]["photos"] == ["https://example.com/full-1.jpg", "https://example.com/full-2.jpg"]
     assert items[0]["sticker_url"] == "https://example.com/sticker"
     assert items[0]["carfax_url"] == "https://example.com/carfax"
+    assert items[0]["mileage"] == 74629
+    assert items[0]["stock_number"] == "NV946662"
 
 
 def test_load_inventory_candidates_prefers_live_cache(monkeypatch, tmp_path):

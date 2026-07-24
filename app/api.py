@@ -3931,6 +3931,26 @@ def _merge_cached_vehicle_assets(items: list[dict[str, Any]]) -> list[dict[str, 
             value = cached.get(key)
             if value not in (None, "", [], {}):
                 row[key] = value
+        quick_specs = cached.get("quick_specs")
+        if isinstance(quick_specs, dict):
+            # Inventory cards occasionally abbreviate an odometer (for example
+            # 74 instead of 74,629). A VIN-matched detail-page read is more
+            # precise and should enrich the live card without making the cache
+            # itself an inventory source.
+            cached_mileage = quick_specs.get("mileage")
+            if isinstance(cached_mileage, (int, float)) and cached_mileage >= 0:
+                row["mileage"] = int(cached_mileage)
+            for cached_key, row_key in (
+                ("stock_number", "stock_number"),
+                ("drivetrain", "drivetrain"),
+                ("engine", "engine"),
+                ("transmission", "transmission"),
+                ("exterior", "exterior"),
+                ("interior", "interior"),
+            ):
+                value = quick_specs.get(cached_key)
+                if value not in (None, "", [], {}) and not row.get(row_key):
+                    row[row_key] = value
 
         clean_vin = str(row.get("vin") or "").upper()
         cached_summary = cached.get("carfax_summary")

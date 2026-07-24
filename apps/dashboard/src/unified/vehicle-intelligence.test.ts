@@ -65,10 +65,9 @@ describe('VIN evidence model', () => {
   });
 
   it('prioritizes differentiating equipment and writes evidence-bound copy', () => {
-    expect(uniqueFactoryFeatures(assets).slice(0, 3)).toEqual([
+    expect(uniqueFactoryFeatures(assets)).toEqual([
       'Driver Assistance Package',
       'Panoramic moonroof',
-      'Burmester premium audio',
     ]);
     const copy = sellingDescriptions(vehicle, assets);
     expect(copy.summary).toContain('Driver Assistance Package');

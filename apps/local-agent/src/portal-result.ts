@@ -57,7 +57,8 @@ export function parseReconRepairOrder(summary: string, sourceUrl: string, fallba
     .map((line) => line.replace(/\s+/g, ' ').trim())
     .filter((line) => line.length >= 8 && line.length <= 240)
     .filter((line) => /(?:replace|repair|inspect|install|mount|balance|detail|clean|diagnos|oil|brake|tire|battery|alignment|paint|body|glass|recall|service|performed|completed)/i.test(line))
-    .filter((line) => !/^(?:status|stage|department|technician|tech|service advisor|advisor|created by|opened|completed|closed|updated)\s*:/i.test(line));
+    .filter((line) => !/^(?:status|stage|department|technician|tech|service advisor|advisor|created by|opened|completed|closed|updated)\s*:/i.test(line))
+    .filter((line) => !/^(?:DMS RO Details|Body Shop|Vehicle Details|Mechanical Inspection & Test Drive|TASK COMPLETED|Review Inspection|Mechanical Repairs|Detail & Photos|DETAIL & PH\.\.\.|INSPECTION)$/i.test(line));
   const workPerformed = [...new Set(candidateLines)].slice(0, 20);
   return {
     repairOrder,

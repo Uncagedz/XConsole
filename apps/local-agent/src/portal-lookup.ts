@@ -237,9 +237,21 @@ async function lookupReconVision(page: Page, portal: PortalLookupConfig, vin: st
       await detailPage.close();
     }
   }
+  const tableTimeline = parseReconTimeline(summary, safeSourceUrl(page.url()));
   const timeline = repairOrders.length
-    ? repairOrders
-    : parseReconTimeline(summary, safeSourceUrl(page.url()));
+    ? repairOrders.map((order, index) => {
+        const tableOrder = tableTimeline.find((candidate) => (
+          candidate.repairOrder && candidate.repairOrder === order.repairOrder
+        )) ?? tableTimeline[index];
+        return {
+          ...order,
+          department: order.department ?? tableOrder?.department ?? null,
+          status: order.status ?? tableOrder?.status ?? null,
+          openedAt: order.openedAt ?? tableOrder?.openedAt ?? null,
+          completedAt: order.completedAt ?? tableOrder?.completedAt ?? null,
+        };
+      })
+    : tableTimeline;
   const completedItems = timeline.flatMap((order) => order.workPerformed);
   return {
     summary,
