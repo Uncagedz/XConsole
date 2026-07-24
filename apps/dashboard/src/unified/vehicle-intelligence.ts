@@ -134,8 +134,8 @@ const highValueFeature = /(?:package|premium|luxury|advanced|driver|assist|adapt
 const genericSpec = /^(?:engine|transmission|drivetrain|drive|fuel|body|exterior|interior|mpg|epa)\s*[:\-]/i;
 
 export function uniqueFactoryFeatures(assets: VehicleAssets | null) {
-  const candidates = [...(assets?.sticker_highlights ?? []), ...(assets?.marketing_summary ?? [])]
-    .map((value) => value.replace(/\s+/g, ' ').trim())
+  const candidates = (assets?.sticker_highlights ?? [])
+    .map((value) => value.replace(/\s+/g, ' ').trim().replace(/[.;,\s]+$/, ''))
     .filter(Boolean);
   const prioritized = [
     ...candidates.filter((value) => highValueFeature.test(value) && !genericSpec.test(value)),

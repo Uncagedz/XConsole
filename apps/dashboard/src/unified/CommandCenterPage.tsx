@@ -320,7 +320,7 @@ export function CommandCenterPage() {
 
               <section className="mc-readiness">
                 <article><span className="mc-signal on" /><div><small>INVENTORY</small><strong>Live listing</strong></div><em>{sourceAge}</em></article>
-                <article><span className={`mc-signal ${carfax.highlights.length ? 'on' : 'warn'}`} /><div><small>CARFAX</small><strong>{statusLabel(connector('carfax'), job('carfax'), carfax.highlights.length > 0)}</strong></div><em>{ago(carfax.observedAt, now)}</em></article>
+                <article><span className={`mc-signal ${carfax.highlights.length ? 'on' : 'warn'}`} /><div><small>CARFAX</small><strong>{carfax.dealerVerified ? 'dealer verified' : carfax.highlights.length ? 'public fallback' : statusLabel(connector('carfax'), job('carfax'), false)}</strong></div><em>{ago(carfax.observedAt, now)}</em></article>
                 <article><span className={`mc-signal ${recon.stage ? 'on' : 'warn'}`} /><div><small>RECONVISION</small><strong>{statusLabel(connector('reconvision'), job('reconvision'), Boolean(recon.stage))}</strong></div><em>{ago(recon.observedAt, now)}</em></article>
                 <article><span className={`mc-signal ${key.location ? 'on' : 'warn'}`} /><div><small>1MICRO</small><strong>{statusLabel(connector('onemicro'), job('onemicro'), Boolean(key.location))}</strong></div><em>{ago(key.observedAt, now)}</em></article>
                 <article><span className={`mc-signal ${assets?.sticker_url || features.length ? 'on' : 'warn'}`} /><div><small>FACTORY DATA</small><strong>{features.length ? 'verified' : assetsBusy ? 'reading' : 'not found'}</strong></div><em>{assets?.loaded_at ? ago(assets.loaded_at, now) : 'automatic'}</em></article>
