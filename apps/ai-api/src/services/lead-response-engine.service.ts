@@ -240,6 +240,36 @@ function latestDealerTimelineMessage(context: LeadContext) {
   return latestFirst(context.conversationTimeline ?? []).find(isDealerEntry);
 }
 
+function ageAtGeneration(timestampIso: string | undefined, now = Date.now()) {
+  const timestamp = timestampIso ? Date.parse(timestampIso) : Number.NaN;
+  if (!Number.isFinite(timestamp) || timestamp > now) return undefined;
+  return Math.round((now - timestamp) / 60_000);
+}
+
+function conversationTiming(context: LeadContext) {
+  const now = new Date();
+  const latestCustomer = latestCustomerTimelineMessage(context);
+  const latestDealer = latestDealerTimelineMessage(context);
+  return {
+    generatedAtUtc: now.toISOString(),
+    timelineOrder: 'newest first',
+    latestCustomerMessage: latestCustomer
+      ? {
+          timestampLabel: latestCustomer.timestampLabel,
+          timestampIso: latestCustomer.timestampIso,
+          ageMinutesAtGeneration: ageAtGeneration(latestCustomer.timestampIso, now.getTime()),
+        }
+      : undefined,
+    latestDealershipMessage: latestDealer
+      ? {
+          timestampLabel: latestDealer.timestampLabel,
+          timestampIso: latestDealer.timestampIso,
+          ageMinutesAtGeneration: ageAtGeneration(latestDealer.timestampIso, now.getTime()),
+        }
+      : undefined,
+  };
+}
+
 export function getLatestCustomerMessage(context: LeadContext) {
   const timelineMessage = latestCustomerTimelineMessage(context);
 
@@ -699,6 +729,7 @@ function leadContextForPrompt(
     },
 
     conversationHistory: buildConversationDigest(context),
+    conversationTiming: conversationTiming(context),
 
     userProfile: userProfile(user),
     salespersonDirection,
@@ -836,6 +867,14 @@ export function buildOpenAILeadResponsePrompt(input: {
     'Never use these phrases: Thanks for reaching out, We appreciate your business, assist you directly, best number and time to call, I can help with this one, Let me know the best number, We want to assist, appreciate your interest.',
     'Do not default to phone-number asks. Ask for a call only when the latest customer message makes a call clearly useful or the salesperson asks for it.',
     'No fake hype. No cringe. No long paragraphs.',
+    'The first sentence must show that you understood the customer’s actual point, question, or emotional posture. Do not open with a generic greeting, a generic acknowledgement, or a sales pitch.',
+    'Give one concrete, useful answer or action before you ask the customer to do anything. Never hand them a generic menu of price, payment, features, mileage, or trade choices when the thread already tells you what matters.',
+    'Before returning suggestedResponse, silently ask: “Could this exact text go to any random lead?” If yes, rewrite it with the real detail, real moment, and real next move from this thread.',
+
+    'TIME AND CONVERSATION MOMENT RULE:',
+    'Read conversationTiming and the timestamps in conversationHistory before writing. The timeline is newest first.',
+    'For a fresh reply (under 15 minutes), respond as if the exchange is still active. For 15 minutes to 12 hours, continue naturally without explaining the pause. For 12 hours to 3 days, bridge the pause only when it adds warmth. After 3 days, reopen around the specific unresolved point instead of pretending this is a live exchange.',
+    'Never say “just following up,” apologize for a delay, state an exact elapsed time, or make a time-sensitive promise unless the conversation evidence makes it genuinely useful and true.',
 
     'CONVERSATION TRUTH RULE:',
     'Only CUSTOMER SAID - CAN CONTROL REPLY can be treated as customer intent.',
