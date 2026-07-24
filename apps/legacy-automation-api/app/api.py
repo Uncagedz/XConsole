@@ -4430,10 +4430,10 @@ def _prefetch_inventory_detail_metadata(items: list[dict[str, Any]]) -> dict[str
     except ValueError:
         request_timeout = 6.0
     try:
-        foreground_budget = float(os.getenv("INVENTORY_METADATA_FOREGROUND_SECONDS", "35") or "35")
+        foreground_budget = float(os.getenv("INVENTORY_METADATA_FOREGROUND_SECONDS", "3") or "3")
     except ValueError:
-        foreground_budget = 35.0
-    foreground_budget = min(60.0, max(5.0, foreground_budget))
+        foreground_budget = 3.0
+    foreground_budget = min(15.0, max(1.0, foreground_budget))
 
     targets: list[tuple[str, str, dict[str, Any]]] = []
     for item in items:
